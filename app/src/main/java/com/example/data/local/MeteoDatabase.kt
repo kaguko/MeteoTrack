@@ -5,9 +5,6 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 @Database(
     entities = [
@@ -37,60 +34,16 @@ abstract class MeteoDatabase : RoomDatabase() {
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
-                            // Pre-seed some default favorites and alerts
-                            CoroutineScope(Dispatchers.IO).launch {
-                                val database = getInstance(context)
-                                database.favoritePlaceDao().insert(
-                                    FavoritePlaceEntity(
-                                        name = "Hà Nội",
-                                        address = "Hoàn Kiếm, Hà Nội, Việt Nam",
-                                        latitude = 21.0285,
-                                        longitude = 105.8542,
-                                        category = "HOME"
-                                    )
-                                )
-                                database.favoritePlaceDao().insert(
-                                    FavoritePlaceEntity(
-                                        name = "TP. Hồ Chí Minh",
-                                        address = "Quận 1, TP. Hồ Chí Minh, Việt Nam",
-                                        latitude = 10.8231,
-                                        longitude = 106.6297,
-                                        category = "WORK"
-                                    )
-                                )
-                                database.favoritePlaceDao().insert(
-                                    FavoritePlaceEntity(
-                                        name = "Đà Lạt",
-                                        address = "Lâm Đồng, Việt Nam",
-                                        latitude = 11.9404,
-                                        longitude = 108.4583,
-                                        category = "TRAVEL"
-                                    )
-                                )
-
-                                database.weatherAlertDao().insert(
-                                    WeatherAlertEntity(
-                                        name = "Cảnh báo nắng nóng (>35°C)",
-                                        type = "TEMP_HIGH",
-                                        threshold = 35.0,
-                                        isEnabled = true
-                                    )
-                                )
-                                database.weatherAlertDao().insert(
-                                    WeatherAlertEntity(
-                                        name = "Cảnh báo mưa to (>70%)",
-                                        type = "RAIN_CHANCE",
-                                        threshold = 70.0,
-                                        isEnabled = true
-                                    )
-                                )
-                                database.weatherAlertDao().insert(
-                                    WeatherAlertEntity(
-                                        name = "Cảnh báo gió mạnh (>30 km/h)",
-                                        type = "WIND_HIGH",
-                                        threshold = 30.0,
-                                        isEnabled = true
-                                    )
+                            // Ship a few sensible alert thresholds; users can edit or delete them.
+                            // Raw SQL on the supplied `db` avoids re-entering getInstance() while it is still being built.
+                            listOf(
+                                Triple("Nắng nóng (≥ 35°C)", "TEMP_HIGH", 35.0),
+                                Triple("Khả năng mưa to (≥ 70%)", "RAIN_CHANCE", 70.0),
+                                Triple("Gió mạnh (≥ 30 km/h)", "WIND_HIGH", 30.0)
+                            ).forEach { (name, type, threshold) ->
+                                db.execSQL(
+                                    "INSERT INTO weather_alerts (name, type, threshold, isEnabled, isTriggered) VALUES (?, ?, ?, 1, 0)",
+                                    arrayOf<Any>(name, type, threshold)
                                 )
                             }
                         }

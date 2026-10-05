@@ -31,6 +31,14 @@ class UserPreferencesRepository(private val context: Context) {
         private val KEY_MIN_DISTANCE = doublePreferencesKey("min_distance")
         private val KEY_MIN_TIME = intPreferencesKey("min_time")
         private val KEY_NOTIFICATIONS = booleanPreferencesKey("notifications_enabled")
+        private val KEY_ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
+    }
+
+    /** `null` until DataStore has been read, so the UI can avoid flashing the welcome screen. */
+    val onboardingDoneFlow: Flow<Boolean> = context.dataStore.data.map { it[KEY_ONBOARDING_DONE] ?: false }
+
+    suspend fun setOnboardingDone() {
+        context.dataStore.edit { it[KEY_ONBOARDING_DONE] = true }
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { preferences ->

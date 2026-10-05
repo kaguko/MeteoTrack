@@ -1,23 +1,30 @@
 package com.example.data.repository
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.location.Address
 import android.location.Geocoder
 import android.location.Location
-import android.os.Build
 import android.os.Looper
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.Task
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -34,108 +41,93 @@ class LocationTracker(private val context: Context) {
     private val fusedLocationClient: FusedLocationProviderClient =
         LocationServices.getFusedLocationProviderClient(context)
 
-    // Last location when weather API was fetched
+    // Reverse geocoding is a blocking network call, so it never runs on the main thread.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Location used for the most recent weather fetch. */
     var lastFetchedLocation: TrackedLocation? = null
         private set
 
-    // Current real-time location
     private val _currentLocation = MutableStateFlow<TrackedLocation?>(null)
     val currentLocation: StateFlow<TrackedLocation?> = _currentLocation.asStateFlow()
 
-    // Distance accumulated since last weather fetch
     private val _distanceSinceLastFetchKm = MutableStateFlow(0.0)
     val distanceSinceLastFetchKm: StateFlow<Double> = _distanceSinceLastFetchKm.asStateFlow()
 
     private var isTracking = false
     private var locationCallback: LocationCallback? = null
+    private var lastNamed: TrackedLocation? = null
 
+    fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+
+    /** Returns the device location, or null when permission is missing or no fix is available. */
     @SuppressLint("MissingPermission")
-    suspend fun getInitialLocation(): TrackedLocation? = withContext(Dispatchers.IO) {
-        try {
-            val lastLoc = suspendCancellableCoroutine<Location?> { cont ->
-                fusedLocationClient.lastLocation
-                    .addOnSuccessListener { loc ->
-                        if (cont.isActive) cont.resume(loc)
-                    }
-                    .addOnFailureListener {
-                        if (cont.isActive) cont.resume(null)
-                    }
-            }
-
-            if (lastLoc != null) {
-                val name = getPlaceNameFromCoordinates(lastLoc.latitude, lastLoc.longitude)
-                val tracked = TrackedLocation(lastLoc.latitude, lastLoc.longitude, name)
-                _currentLocation.value = tracked
-                return@withContext tracked
-            }
-
-            // Fallback request current location
-            val currentLoc = suspendCancellableCoroutine<Location?> { cont ->
-                fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
-                    .addOnSuccessListener { loc ->
-                        if (cont.isActive) cont.resume(loc)
-                    }
-                    .addOnFailureListener {
-                        if (cont.isActive) cont.resume(null)
-                    }
-            }
-
-            if (currentLoc != null) {
-                val name = getPlaceNameFromCoordinates(currentLoc.latitude, currentLoc.longitude)
-                val tracked = TrackedLocation(currentLoc.latitude, currentLoc.longitude, name)
-                _currentLocation.value = tracked
-                return@withContext tracked
-            }
+    suspend fun getInitialLocation(): TrackedLocation? {
+        if (!hasLocationPermission()) return null
+        return try {
+            val loc = awaitLocation { fusedLocationClient.lastLocation }
+                ?: awaitLocation {
+                    fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
+                }
+                ?: return null
+            toTracked(loc).also { _currentLocation.value = it }
         } catch (e: Exception) {
-            Log.e("LocationTracker", "Error getting initial location", e)
+            Log.e(TAG, "Error getting initial location", e)
+            null
         }
-
-        // Default default location in Hanoi, Vietnam if location is unavailable initially
-        val defaultHanoi = TrackedLocation(21.0285, 105.8542, "Hà Nội, Việt Nam")
-        _currentLocation.value = defaultHanoi
-        defaultHanoi
     }
+
+    private suspend fun awaitLocation(request: () -> Task<Location?>): Location? =
+        suspendCancellableCoroutine { cont ->
+            request()
+                .addOnSuccessListener { if (cont.isActive) cont.resume(it) }
+                .addOnFailureListener { if (cont.isActive) cont.resume(null) }
+        }
 
     @SuppressLint("MissingPermission")
     fun startLocationUpdates(onLocationChanged: (TrackedLocation, Double) -> Unit) {
-        if (isTracking) return
-        isTracking = true
+        if (isTracking || !hasLocationPermission()) return
 
         val request = LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 15_000L)
             .setMinUpdateIntervalMillis(10_000L)
             .setMinUpdateDistanceMeters(50f)
             .build()
 
-        locationCallback = object : LocationCallback() {
+        val callback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 val loc = result.lastLocation ?: return
-                val name = getPlaceNameFromCoordinates(loc.latitude, loc.longitude)
-                val newTracked = TrackedLocation(loc.latitude, loc.longitude, name)
-                _currentLocation.value = newTracked
-
-                val distanceKm = calculateDistanceFromLastFetch(loc.latitude, loc.longitude)
-                _distanceSinceLastFetchKm.value = distanceKm
-
-                onLocationChanged(newTracked, distanceKm)
+                scope.launch {
+                    val tracked = toTracked(loc)
+                    _currentLocation.value = tracked
+                    val distanceKm = calculateDistanceFromLastFetch(loc.latitude, loc.longitude)
+                    _distanceSinceLastFetchKm.value = distanceKm
+                    onLocationChanged(tracked, distanceKm)
+                }
             }
         }
 
         try {
-            fusedLocationClient.requestLocationUpdates(
-                request,
-                locationCallback!!,
-                Looper.getMainLooper()
-            )
+            fusedLocationClient.requestLocationUpdates(request, callback, Looper.getMainLooper())
+            locationCallback = callback
+            isTracking = true
         } catch (e: Exception) {
-            Log.e("LocationTracker", "Cannot request location updates", e)
+            Log.e(TAG, "Cannot request location updates", e)
         }
     }
 
     fun stopLocationUpdates() {
-        locationCallback?.let {
-            fusedLocationClient.removeLocationUpdates(it)
-        }
+        locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
+        locationCallback = null
         isTracking = false
+    }
+
+    fun release() {
+        stopLocationUpdates()
+        scope.cancel()
     }
 
     fun recordWeatherFetched(location: TrackedLocation) {
@@ -145,60 +137,66 @@ class LocationTracker(private val context: Context) {
 
     fun calculateDistanceFromLastFetch(latitude: Double, longitude: Double): Double {
         val last = lastFetchedLocation ?: return 0.0
-        val results = FloatArray(1)
-        Location.distanceBetween(
-            last.latitude,
-            last.longitude,
-            latitude,
-            longitude,
-            results
-        )
-        return results[0] / 1000.0 // meters to km
+        return distanceKm(last.latitude, last.longitude, latitude, longitude)
     }
 
-    // Helper for manual or simulated movement (very helpful for testing auto-refresh when >5km!)
-    fun simulateMovement(deltaKm: Double, onMoved: (TrackedLocation, Double) -> Unit) {
+    /** Debug helper: pretend the device moved [deltaKm] to the north-east. */
+    suspend fun simulateMovement(deltaKm: Double, onMoved: (TrackedLocation, Double) -> Unit) {
         val current = _currentLocation.value ?: TrackedLocation(21.0285, 105.8542, "Hà Nội")
-        // Roughly 1 deg lat is ~111km
-        val deltaLat = deltaKm / 111.0
-        val newLat = current.latitude + deltaLat
-        val newLng = current.longitude + (deltaKm / 111.0)
-        val newName = getPlaceNameFromCoordinates(newLat, newLng)
-        val newTracked = TrackedLocation(newLat, newLng, newName)
-        _currentLocation.value = newTracked
-
+        val delta = deltaKm / 111.0 // ~111 km per degree
+        val newLat = current.latitude + delta
+        val newLng = current.longitude + delta
+        val tracked = TrackedLocation(newLat, newLng, placeName(newLat, newLng))
+        _currentLocation.value = tracked
         val dist = calculateDistanceFromLastFetch(newLat, newLng)
         _distanceSinceLastFetchKm.value = dist
-        onMoved(newTracked, dist)
+        onMoved(tracked, dist)
     }
 
-    fun getPlaceNameFromCoordinates(lat: Double, lng: Double): String {
+    private suspend fun toTracked(loc: Location): TrackedLocation =
+        TrackedLocation(loc.latitude, loc.longitude, placeName(loc.latitude, loc.longitude))
+
+    /** Reuses the previous name while the device stays within ~300 m to avoid needless geocoder calls. */
+    private suspend fun placeName(lat: Double, lng: Double): String {
+        lastNamed?.let {
+            if (distanceKm(it.latitude, it.longitude, lat, lng) < 0.3) return it.displayName
+        }
+        val name = withContext(Dispatchers.IO) { reverseGeocode(lat, lng) }
+        lastNamed = TrackedLocation(lat, lng, name)
+        return name
+    }
+
+    private fun reverseGeocode(lat: Double, lng: Double): String {
+        val fallback = "Vị trí hiện tại (%.2f, %.2f)".format(Locale.US, lat, lng)
+        if (!Geocoder.isPresent()) return fallback
         return try {
-            val geocoder = Geocoder(context, Locale("vi", "VN"))
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                var resultName: String? = null
-                // Tiramisu async geocoding fallback
-                val addresses = geocoder.getFromLocation(lat, lng, 1)
-                formatAddress(addresses?.firstOrNull(), lat, lng)
-            } else {
-                @Suppress("DEPRECATION")
-                val addresses = geocoder.getFromLocation(lat, lng, 1)
-                formatAddress(addresses?.firstOrNull(), lat, lng)
-            }
+            @Suppress("DEPRECATION")
+            val addresses = Geocoder(context, Locale.forLanguageTag("vi-VN")).getFromLocation(lat, lng, 1)
+            formatAddress(addresses?.firstOrNull()) ?: fallback
         } catch (e: Exception) {
-            "Tọa độ: %.3f, %.3f".format(Locale.US, lat, lng)
+            fallback
         }
     }
 
-    private fun formatAddress(address: Address?, lat: Double, lng: Double): String {
-        if (address == null) return "Tọa độ: %.3f, %.3f".format(Locale.US, lat, lng)
+    private fun formatAddress(address: Address?): String? {
+        address ?: return null
         val locality = address.subAdminArea ?: address.locality ?: address.subLocality
         val admin = address.adminArea
         return when {
-            locality != null && admin != null -> "$locality, $admin"
+            locality != null && admin != null && locality != admin -> "$locality, $admin"
             locality != null -> locality
             admin != null -> admin
-            else -> address.featureName ?: "Tọa độ: %.3f, %.3f".format(Locale.US, lat, lng)
+            else -> address.featureName
+        }
+    }
+
+    companion object {
+        private const val TAG = "LocationTracker"
+
+        fun distanceKm(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
+            val results = FloatArray(1)
+            Location.distanceBetween(lat1, lng1, lat2, lng2, results)
+            return results[0] / 1000.0
         }
     }
 }

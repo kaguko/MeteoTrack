@@ -2,19 +2,14 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val BluePrimary = Color(0xFF0284C7)
-val BlueSecondary = Color(0xFF38BDF8)
-val BlueTertiary = Color(0xFF0284C7)
-
+// Brand
+val SkyBlue = Color(0xFF0369A1)
+val SkyBlueLight = Color(0xFF7DD3FC)
 val SunAmber = Color(0xFFF59E0B)
-val RainCyan = Color(0xFF06B6D4)
-val StormNavy = Color(0xFF1E293B)
-val NightPurple = Color(0xFF311042)
+val RainCyan = Color(0xFF0E7490)
 
-val SkyLightBg = Color(0xFFF0F9FF)
-val SkySurfaceLight = Color(0xFFFFFFFF)
-val SkyTextDark = Color(0xFF0F172A)
-
-val DarkBg = Color(0xFF0B1120)
-val DarkSurface = Color(0xFF1E293B)
-val DarkText = Color(0xFFF8FAFC)
+// Status colours (tuned for AA contrast on both light and dark surfaces)
+val SuccessGreen = Color(0xFF15803D)
+val SuccessGreenLight = Color(0xFF4ADE80)
+val WarningAmber = Color(0xFFB45309)
+val WarningAmberLight = Color(0xFFFBBF24)

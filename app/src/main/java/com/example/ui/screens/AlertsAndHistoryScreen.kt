@@ -1,21 +1,28 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Air
@@ -24,6 +31,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material3.AlertDialog
@@ -31,6 +39,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,27 +53,60 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.local.TravelHistoryEntity
 import com.example.data.local.WeatherAlertEntity
+import com.example.data.model.Units
 import com.example.data.model.WeatherCodeMapper
+import com.example.ui.components.CenteredContent
+import com.example.ui.components.EmptyState
+import com.example.ui.components.InfoBanner
+import com.example.ui.openNotificationSettings
+import com.example.ui.rememberNotificationPermission
 import com.example.ui.viewmodel.WeatherViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private enum class AlertType(
+    val key: String,
+    val chipLabel: String,
+    val defaultName: String,
+    val defaultThreshold: String,
+    val unit: String,
+    val min: Double,
+    val max: Double,
+    val icon: ImageVector
+) {
+    TEMP_HIGH("TEMP_HIGH", "Nóng", "Nắng nóng", "35", "°C", -50.0, 60.0, Icons.Default.Thermostat),
+    TEMP_LOW("TEMP_LOW", "Lạnh", "Trời lạnh", "16", "°C", -50.0, 60.0, Icons.Default.Thermostat),
+    RAIN_CHANCE("RAIN_CHANCE", "Mưa", "Khả năng mưa cao", "70", "%", 0.0, 100.0, Icons.Default.WaterDrop),
+    WIND_HIGH("WIND_HIGH", "Gió", "Gió mạnh", "30", "km/h", 1.0, 200.0, Icons.Default.Air);
+
+    companion object {
+        fun from(key: String) = entries.firstOrNull { it.key == key }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,74 +114,64 @@ fun AlertsAndHistoryScreen(
     viewModel: WeatherViewModel,
     modifier: Modifier = Modifier
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
-    val alerts by viewModel.weatherAlerts.collectAsState()
-    val history by viewModel.travelHistory.collectAsState()
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var showAddDialog by rememberSaveable { mutableStateOf(false) }
+    var showClearConfirm by rememberSaveable { mutableStateOf(false) }
 
-    var showAddDialog by remember { mutableStateOf(false) }
+    val alerts by viewModel.weatherAlerts.collectAsStateWithLifecycle()
+    val history by viewModel.travelHistory.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Cảnh báo & Nhật ký di chuyển",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
+        modifier = modifier,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        topBar = { TopAppBar(title = { Text("Cảnh báo & nhật ký", style = MaterialTheme.typography.titleLarge) }) }
+    ) { innerPadding ->
+        CenteredContent(modifier = Modifier.padding(innerPadding)) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                TabRow(selectedTabIndex = selectedTab) {
+                    Tab(
+                        selected = selectedTab == 0,
+                        onClick = { selectedTab = 0 },
+                        text = { Text("Cảnh báo (${alerts.size})") },
+                        icon = { Icon(Icons.Default.NotificationsActive, contentDescription = null, modifier = Modifier.size(20.dp)) }
+                    )
+                    Tab(
+                        selected = selectedTab == 1,
+                        onClick = { selectedTab = 1 },
+                        text = { Text("Nhật ký (${history.size})") },
+                        icon = { Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(20.dp)) }
                     )
                 }
-            )
-        }
-    ) { innerPadding ->
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            TabRow(
-                selectedTabIndex = selectedTab,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Tab(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    text = { Text("Ngưỡng cảnh báo (${alerts.size})") },
-                    icon = { Icon(Icons.Default.NotificationsActive, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                )
-                Tab(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    text = { Text("Nhật ký di chuyển (${history.size})") },
-                    icon = { Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                )
-            }
 
-            if (selectedTab == 0) {
-                // Tab 1: Weather Alerts
-                AlertsTabContent(
-                    alerts = alerts,
-                    onToggle = { alert, enabled -> viewModel.toggleAlertEnabled(alert, enabled) },
-                    onDelete = { alert -> viewModel.deleteAlert(alert) },
-                    onAddNew = { showAddDialog = true },
-                    onTestNotification = {
-                        viewModel.testAlertNotification(
-                            "⚠️ Cảnh báo thời tiết thử nghiệm",
-                            "MeteoTrack: Thông báo cảnh báo thời tiết hoạt động bình thường!"
-                        )
-                    }
-                )
-            } else {
-                // Tab 2: Travel History
-                TravelHistoryTabContent(
-                    history = history,
-                    onClearAll = { viewModel.clearAllHistory() }
-                )
+                if (selectedTab == 0) {
+                    AlertsTab(
+                        alerts = alerts,
+                        notificationsEnabled = settings.notificationsEnabled,
+                        onToggle = { alert, enabled -> viewModel.toggleAlertEnabled(alert, enabled) },
+                        onDelete = { viewModel.deleteAlert(it) },
+                        onAddNew = { showAddDialog = true },
+                        onTestNotification = {
+                            viewModel.testAlertNotification(
+                                "Thông báo thử nghiệm",
+                                "Thông báo cảnh báo thời tiết đang hoạt động bình thường."
+                            )
+                        }
+                    )
+                } else {
+                    HistoryTab(
+                        history = history,
+                        tempUnit = settings.tempUnit,
+                        thresholdKm = settings.minDistanceKm,
+                        onClearAll = { showClearConfirm = true }
+                    )
+                }
             }
         }
     }
 
     if (showAddDialog) {
-        AddNewAlertDialog(
+        AddAlertDialog(
             onDismiss = { showAddDialog = false },
             onConfirm = { name, type, threshold ->
                 viewModel.addNewAlert(name, type, threshold)
@@ -147,77 +179,93 @@ fun AlertsAndHistoryScreen(
             }
         )
     }
+
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text("Xóa toàn bộ nhật ký?") },
+            text = { Text("${history.size} điểm đến đã ghi sẽ bị xóa và không thể khôi phục.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.clearAllHistory()
+                        showClearConfirm = false
+                    },
+                    modifier = Modifier.testTag("confirm_clear_history")
+                ) { Text("Xóa hết", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { showClearConfirm = false }) { Text("Hủy") } }
+        )
+    }
 }
 
+// ------------------------------------------------------------------------------------ alerts
+
 @Composable
-private fun AlertsTabContent(
+private fun AlertsTab(
     alerts: List<WeatherAlertEntity>,
+    notificationsEnabled: Boolean,
     onToggle: (WeatherAlertEntity, Boolean) -> Unit,
     onDelete: (WeatherAlertEntity) -> Unit,
     onAddNew: () -> Unit,
     onTestNotification: () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Button(
-                onClick = onAddNew,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("add_new_alert_button"),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Thêm cảnh báo", fontSize = 13.sp)
-            }
+    val context = LocalContext.current
+    val hasPermission by rememberNotificationPermission()
 
-            OutlinedButton(
-                onClick = onTestNotification,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("test_notification_button"),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(imageVector = Icons.Default.NotificationsActive, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Thử thông báo", fontSize = 13.sp)
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        if (!hasPermission || !notificationsEnabled) {
+            item {
+                InfoBanner(
+                    text = if (!hasPermission) "Thông báo đang bị tắt trên thiết bị nên bạn sẽ không nhận được cảnh báo."
+                    else "Bạn đã tắt thông báo thời tiết trong Cài đặt.",
+                    icon = Icons.Default.NotificationsOff,
+                    actionLabel = if (!hasPermission) "Bật" else null,
+                    onAction = if (!hasPermission) ({ context.openNotificationSettings() }) else null,
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                )
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = onAddNew,
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("add_new_alert_button")
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Thêm cảnh báo")
+                }
+                OutlinedButton(
+                    onClick = onTestNotification,
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("test_notification_button")
+                ) { Text("Gửi thử") }
+            }
+        }
 
         if (alerts.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "Chưa có ngưỡng cảnh báo nào. Bấm 'Thêm cảnh báo' để tạo.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            item {
+                EmptyState(
+                    icon = Icons.Default.NotificationsActive,
+                    title = "Chưa có cảnh báo nào",
+                    message = "Đặt ngưỡng nhiệt độ, mưa hoặc gió, MeteoTrack sẽ báo ngay khi dự báo vượt ngưỡng."
                 )
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(alerts, key = { it.id }) { alert ->
-                    AlertItemCard(
-                        alert = alert,
-                        onToggle = { onToggle(alert, it) },
-                        onDelete = { onDelete(alert) }
-                    )
-                }
+            items(alerts, key = { it.id }) { alert ->
+                AlertItemCard(alert = alert, onToggle = { onToggle(alert, it) }, onDelete = { onDelete(alert) })
             }
         }
     }
@@ -229,228 +277,228 @@ private fun AlertItemCard(
     onToggle: (Boolean) -> Unit,
     onDelete: () -> Unit
 ) {
-    val icon = when (alert.type) {
-        "TEMP_HIGH" -> Icons.Default.Thermostat
-        "TEMP_LOW" -> Icons.Default.Thermostat
-        "RAIN_CHANCE" -> Icons.Default.WaterDrop
-        "WIND_HIGH" -> Icons.Default.Air
-        else -> Icons.Default.NotificationsActive
+    val type = AlertType.from(alert.type)
+    val dark = isSystemInDarkTheme()
+    val tint = when (type) {
+        AlertType.TEMP_HIGH -> if (dark) Color(0xFFFCA5A5) else Color(0xFFB91C1C)
+        AlertType.TEMP_LOW -> if (dark) Color(0xFF93C5FD) else Color(0xFF1D4ED8)
+        AlertType.RAIN_CHANCE -> MaterialTheme.colorScheme.primary
+        AlertType.WIND_HIGH -> MaterialTheme.colorScheme.secondary
+        null -> MaterialTheme.colorScheme.primary
     }
-
-    val iconColor = when (alert.type) {
-        "TEMP_HIGH" -> Color(0xFFEF4444)
-        "TEMP_LOW" -> Color(0xFF3B82F6)
-        "RAIN_CHANCE" -> Color(0xFF0284C7)
-        "WIND_HIGH" -> Color(0xFF0D9488)
-        else -> MaterialTheme.colorScheme.primary
+    val condition = when (type) {
+        AlertType.TEMP_HIGH -> "Khi nhiệt độ từ ${alert.threshold.toInt()}°C trở lên"
+        AlertType.TEMP_LOW -> "Khi nhiệt độ từ ${alert.threshold.toInt()}°C trở xuống"
+        AlertType.RAIN_CHANCE -> "Khi khả năng mưa từ ${alert.threshold.toInt()}% trở lên"
+        AlertType.WIND_HIGH -> "Khi gió từ ${alert.threshold.toInt()} km/h trở lên"
+        null -> "Ngưỡng ${alert.threshold}"
     }
 
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("alert_card_${alert.id}"),
+        modifier = Modifier.fillMaxWidth().testTag("alert_card_${alert.id}"),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        )
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
+            modifier = Modifier.padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
+            Row(
                 modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(iconColor.copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = alert.name,
-                    tint = iconColor,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = alert.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = when (alert.type) {
-                        "TEMP_HIGH" -> "Báo động khi nhiệt độ ≥ ${alert.threshold.toInt()}°C"
-                        "TEMP_LOW" -> "Báo động khi nhiệt độ ≤ ${alert.threshold.toInt()}°C"
-                        "RAIN_CHANCE" -> "Báo động khi khả năng mưa ≥ ${alert.threshold.toInt()}%"
-                        "WIND_HIGH" -> "Báo động khi gió ≥ ${alert.threshold.toInt()} km/h"
-                        else -> "Ngưỡng: ${alert.threshold}"
+                    .weight(1f)
+                    .toggleable(value = alert.isEnabled, role = Role.Switch, onValueChange = onToggle)
+                    .heightIn(min = 56.dp)
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = "${alert.name}. $condition. ${if (alert.isEnabled) "Đang bật" else "Đang tắt"}"
                     },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (alert.isTriggered) {
-                    Text(
-                        text = "⚠️ Điều kiện đang thỏa mãn!",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFFDC2626)
-                    )
-                }
-            }
-
-            Switch(
-                checked = alert.isEnabled,
-                onCheckedChange = onToggle,
-                modifier = Modifier.testTag("alert_switch_${alert.id}")
-            )
-
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier.testTag("delete_alert_${alert.id}")
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Box(
+                    modifier = Modifier.size(40.dp).clip(CircleShape).background(tint.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(type?.icon ?: Icons.Default.NotificationsActive, null, tint = tint, modifier = Modifier.size(22.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(alert.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(condition, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (alert.isTriggered) {
+                        Text(
+                            "Đang vượt ngưỡng",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+                Switch(
+                    checked = alert.isEnabled,
+                    onCheckedChange = null,
+                    modifier = Modifier.testTag("alert_switch_${alert.id}")
+                )
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.testTag("delete_alert_${alert.id}")) {
                 Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Xóa",
-                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                    modifier = Modifier.size(18.dp)
+                    Icons.Default.Delete,
+                    contentDescription = "Xóa cảnh báo ${alert.name}",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TravelHistoryTabContent(
+private fun AddAlertDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (name: String, type: String, threshold: Double) -> Unit
+) {
+    var type by rememberSaveable { mutableStateOf(AlertType.TEMP_HIGH) }
+    var name by rememberSaveable { mutableStateOf("") }
+    var thresholdText by rememberSaveable { mutableStateOf(AlertType.TEMP_HIGH.defaultThreshold) }
+
+    val threshold = thresholdText.replace(',', '.').toDoubleOrNull()
+    val valid = threshold != null && threshold in type.min..type.max
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Thêm cảnh báo") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("Báo cho tôi khi", style = MaterialTheme.typography.labelLarge)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AlertType.entries.forEach { option ->
+                        FilterChip(
+                            selected = type == option,
+                            onClick = {
+                                type = option
+                                thresholdText = option.defaultThreshold
+                            },
+                            label = { Text(option.chipLabel) },
+                            leadingIcon = { Icon(option.icon, null, modifier = Modifier.size(18.dp)) }
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = thresholdText,
+                    onValueChange = { thresholdText = it.take(6) },
+                    label = { Text(if (type == AlertType.TEMP_LOW) "Từ mức này trở xuống" else "Từ mức này trở lên") },
+                    suffix = { Text(type.unit) },
+                    singleLine = true,
+                    isError = !valid,
+                    supportingText = {
+                        if (!valid) Text("Nhập số từ ${type.min.toInt()} đến ${type.max.toInt()}")
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = {
+                        name = it.take(40)
+                    },
+                    label = { Text("Tên cảnh báo (không bắt buộc)") },
+                    placeholder = { Text(type.defaultName) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = valid,
+                onClick = { onConfirm(name.trim().ifBlank { type.defaultName }, type.key, threshold!!) }
+            ) { Text("Lưu") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Hủy") } }
+    )
+}
+
+// ------------------------------------------------------------------------------------ history
+
+@Composable
+private fun HistoryTab(
     history: List<TravelHistoryEntity>,
+    tempUnit: String,
+    thresholdKm: Double,
     onClearAll: () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column {
-                Text(
-                    text = "Lịch sử điểm đến",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Tự động ghi lại thời tiết mỗi khi bạn di chuyển",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            if (history.isNotEmpty()) {
-                TextButton(
-                    onClick = onClearAll,
-                    modifier = Modifier.testTag("clear_history_button")
-                ) {
-                    Icon(imageVector = Icons.Default.DeleteSweep, contentDescription = "Xóa tất cả", modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Xóa hết")
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Nơi bạn đã đi qua", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Mỗi lần bạn di chuyển đủ xa, thời tiết tại điểm mới được ghi lại. Dữ liệu chỉ lưu trên máy này.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (history.isNotEmpty()) {
+                    TextButton(onClick = onClearAll, modifier = Modifier.testTag("clear_history_button")) {
+                        Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Xóa hết")
+                    }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-
         if (history.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.Navigation,
-                        contentDescription = "Trống",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Chưa có hành trình nào được ghi lại",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "Khi bạn di chuyển >5km, app sẽ tự động ghi lại tại đây",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    )
-                }
+            item {
+                EmptyState(
+                    icon = Icons.Default.Navigation,
+                    title = "Chưa có hành trình nào",
+                    message = "Khi bạn di chuyển hơn ${thresholdKm.toInt()} km, ứng dụng sẽ tự ghi lại thời tiết tại điểm mới."
+                )
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(history, key = { it.id }) { item ->
-                    HistoryItemCard(item = item)
-                }
-            }
+            items(history, key = { it.id }) { HistoryItemCard(it, tempUnit) }
         }
     }
 }
 
 @Composable
-private fun HistoryItemCard(item: TravelHistoryEntity) {
-    val weatherInfo = WeatherCodeMapper.getInfo(item.weatherCode)
-    val timeStr = formatHistoryTime(item.recordedAt)
+private fun HistoryItemCard(item: TravelHistoryEntity, tempUnit: String) {
+    val info = WeatherCodeMapper.getInfo(item.weatherCode)
+    val time = remember(item.recordedAt) {
+        SimpleDateFormat("HH:mm · dd/MM/yyyy", Locale.forLanguageTag("vi-VN")).format(Date(item.recordedAt))
+    }
+    val temp = Units.tempWithUnit(item.temperature, tempUnit)
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-        )
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
+                .padding(14.dp)
+                .semantics(mergeDescendants = true) {
+                    contentDescription = "${item.placeName}, ${info.title}, $temp, $time" +
+                        if (item.distanceFromPreviousKm > 0) ", cách điểm trước %.1f ki-lô-mét".format(Locale.US, item.distanceFromPreviousKm) else ""
+                },
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = weatherInfo.iconEmoji,
-                fontSize = 28.sp
-            )
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
+            Text(info.iconEmoji, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.clearAndSetSemantics { })
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(item.placeName, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
-                    text = item.placeName,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "${item.weatherDescription} • ${item.temperature.toInt()}°C",
+                    "${info.title} · $temp",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
+                    color = MaterialTheme.colorScheme.primary
                 )
-                Text(
-                    text = timeStr,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Text(time, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-
             if (item.distanceFromPreviousKm > 0) {
                 Box(
                     modifier = Modifier
@@ -459,127 +507,12 @@ private fun HistoryItemCard(item: TravelHistoryEntity) {
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = "+%.1f km".format(item.distanceFromPreviousKm),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
+                        "+%.1f km".format(Locale.US, item.distanceFromPreviousKm),
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun AddNewAlertDialog(
-    onDismiss: () -> Unit,
-    onConfirm: (name: String, type: String, threshold: Double) -> Unit
-) {
-    var name by remember { mutableStateOf("") }
-    var type by remember { mutableStateOf("TEMP_HIGH") }
-    var thresholdText by remember { mutableStateOf("35") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Thêm cảnh báo mới") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Tên cảnh báo") },
-                    placeholder = { Text("VD: Nắng gắt trên 35°C") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Text("Loại cảnh báo:", style = MaterialTheme.typography.bodySmall)
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    TypeSelectButton("Nhiệt cao", "TEMP_HIGH", type) {
-                        type = it
-                        if (name.isEmpty()) name = "Nắng gắt"
-                        thresholdText = "35"
-                    }
-                    TypeSelectButton("Nhiệt thấp", "TEMP_LOW", type) {
-                        type = it
-                        if (name.isEmpty()) name = "Rét buốt"
-                        thresholdText = "16"
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    TypeSelectButton("Mưa to (%)", "RAIN_CHANCE", type) {
-                        type = it
-                        if (name.isEmpty()) name = "Mưa lớn"
-                        thresholdText = "70"
-                    }
-                    TypeSelectButton("Gió mạnh", "WIND_HIGH", type) {
-                        type = it
-                        if (name.isEmpty()) name = "Gió giật"
-                        thresholdText = "30"
-                    }
-                }
-
-                OutlinedTextField(
-                    value = thresholdText,
-                    onValueChange = { thresholdText = it },
-                    label = { Text("Ngưỡng kích hoạt") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val threshold = thresholdText.toDoubleOrNull() ?: 30.0
-                    val finalName = if (name.isBlank()) "Cảnh báo cá nhân" else name
-                    onConfirm(finalName, type, threshold)
-                }
-            ) {
-                Text("Lưu")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Hủy")
-            }
-        }
-    )
-}
-
-@Composable
-private fun TypeSelectButton(
-    label: String,
-    typeKey: String,
-    selectedKey: String,
-    onSelect: (String) -> Unit
-) {
-    val isSelected = selectedKey == typeKey
-    Button(
-        onClick = { onSelect(typeKey) },
-        shape = RoundedCornerShape(10.dp),
-        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-            containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-        ),
-        modifier = Modifier.padding(vertical = 2.dp)
-    ) {
-        Text(label, fontSize = 11.sp)
-    }
-}
-
-private fun formatHistoryTime(timestamp: Long): String {
-    return try {
-        val sdf = SimpleDateFormat("HH:mm - dd/MM/yyyy", Locale("vi", "VN"))
-        sdf.format(Date(timestamp))
-    } catch (e: Exception) {
-        ""
     }
 }

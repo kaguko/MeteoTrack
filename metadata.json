@@ -1,0 +1,6 @@
+{
+  "name": "MeteoTrack",
+  "description": "Ứng dụng theo dõi thời tiết di chuyển theo thời gian thực với Open-Meteo, dự báo 24h & 7 ngày, phát hiện di chuyển >5km, bản đồ & địa điểm yêu thích, cảnh báo thời tiết cá nhân hóa.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

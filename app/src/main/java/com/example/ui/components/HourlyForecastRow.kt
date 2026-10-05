@@ -2,180 +2,128 @@ package com.example.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.data.model.HourlyWeather
+import com.example.data.model.Units
 import com.example.data.model.WeatherCodeMapper
+import com.example.data.model.hourLabel
+import com.example.data.model.indexOfHour
+
+private data class HourItem(
+    val label: String,
+    val emoji: String,
+    val tempText: String,
+    val spokenTemp: String,
+    val rainProb: Int,
+    val isNow: Boolean
+)
 
 @Composable
 fun HourlyForecastRow(
     hourly: HourlyWeather,
+    currentTime: String?,
     tempUnit: String,
     modifier: Modifier = Modifier
 ) {
-    // Show next 24 items
-    val count = hourly.time.size.coerceAtMost(24)
+    val items = remember(hourly, currentTime, tempUnit) {
+        val start = hourly.indexOfHour(currentTime)
+        val end = (start + 24).coerceAtMost(hourly.time.size)
+        (start until end).map { index ->
+            val temp = hourly.temperature2m.getOrNull(index) ?: 0.0
+            HourItem(
+                label = if (index == start) "Bây giờ" else hourLabel(hourly.time[index]) ?: "",
+                emoji = WeatherCodeMapper.getInfo(hourly.weatherCode.getOrNull(index) ?: 0).iconEmoji,
+                tempText = Units.tempShort(temp, tempUnit),
+                spokenTemp = "${Math.round(Units.temp(temp, tempUnit))} độ",
+                rainProb = hourly.precipitationProbability?.getOrNull(index) ?: 0,
+                isNow = index == start
+            )
+        }
+    }
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("hourly_forecast_card"),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color.White.copy(alpha = 0.16f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    GlassCard(
+        modifier = modifier.testTag("hourly_forecast_card"),
+        contentPadding = 0.dp
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 16.dp)
+        SectionHeader(
+            icon = Icons.Default.Schedule,
+            title = "24 giờ tới",
+            modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 16.dp)
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        LazyRow(
+            contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 18.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Schedule,
-                    contentDescription = "Dự báo theo giờ",
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Dự báo 24 giờ tới",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(count) { index ->
-                    val rawTime = hourly.time.getOrNull(index) ?: ""
-                    val hourStr = formatHourString(rawTime, index == 0)
-                    val rawTemp = hourly.temperature2m.getOrNull(index) ?: 0.0
-                    val displayTemp = if (tempUnit == "F") (rawTemp * 9.0 / 5.0) + 32.0 else rawTemp
-                    val weatherCode = hourly.weatherCode.getOrNull(index) ?: 0
-                    val weatherInfo = WeatherCodeMapper.getInfo(weatherCode)
-                    val rainProb = hourly.precipitationProbability?.getOrNull(index) ?: 0
-
-                    HourlyItemCard(
-                        hour = hourStr,
-                        emoji = weatherInfo.iconEmoji,
-                        temp = "${displayTemp.toInt()}°",
-                        rainProb = rainProb,
-                        isNow = index == 0
-                    )
-                }
-            }
+            items(items) { HourlyItemCard(it) }
         }
     }
 }
 
 @Composable
-private fun HourlyItemCard(
-    hour: String,
-    emoji: String,
-    temp: String,
-    rainProb: Int,
-    isNow: Boolean
-) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(
-                if (isNow) Color.White.copy(alpha = 0.32f)
-                else Color.White.copy(alpha = 0.12f)
-            )
-            .padding(horizontal = 12.dp, vertical = 12.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = hour,
-                fontSize = 12.sp,
-                fontWeight = if (isNow) FontWeight.Bold else FontWeight.Normal,
-                color = Color.White
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = emoji,
-                fontSize = 24.sp
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = temp,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-
-            if (rainProb > 0) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "💧$rainProb%",
-                    fontSize = 10.sp,
-                    color = Color(0xFFBAE6FD),
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
+private fun HourlyItemCard(item: HourItem) {
+    val spoken = buildString {
+        append(item.label).append(", ").append(item.spokenTemp)
+        if (item.rainProb > 0) append(", khả năng mưa ${item.rainProb}%")
     }
-}
-
-private fun formatHourString(isoString: String, isFirst: Boolean): String {
-    if (isFirst) return "Bây giờ"
-    return try {
-        // Typically ISO like "2026-10-05T14:00"
-        val parts = isoString.split("T")
-        if (parts.size >= 2) {
-            parts[1].take(5)
-        } else {
-            isoString
-        }
-    } catch (e: Exception) {
-        isoString
+    Column(
+        modifier = Modifier
+            .widthIn(min = 64.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (item.isNow) Color(0x40FFFFFF) else Color(0x14FFFFFF))
+            .padding(horizontal = 12.dp, vertical = 12.dp)
+            .semantics(mergeDescendants = true) { contentDescription = spoken },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = item.label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (item.isNow) FontWeight.Bold else FontWeight.Medium,
+            color = Glass.OnGlass,
+            modifier = Modifier.clearAndSetSemantics { }
+        )
+        Text(
+            text = item.emoji,
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.clearAndSetSemantics { }
+        )
+        Text(
+            text = item.tempText,
+            style = MaterialTheme.typography.titleMedium,
+            color = Glass.OnGlass,
+            modifier = Modifier.clearAndSetSemantics { }
+        )
+        // Reserve the line even when dry so every tile has the same height.
+        Text(
+            text = if (item.rainProb > 0) "💧${item.rainProb}%" else " ",
+            style = MaterialTheme.typography.labelSmall,
+            color = Glass.OnGlassMuted,
+            modifier = Modifier.clearAndSetSemantics { }
+        )
     }
 }

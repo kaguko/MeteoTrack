@@ -13,17 +13,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Air
-import androidx.compose.material.icons.filled.Thermostat
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.WbTwilight
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.outlined.Umbrella
+import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -31,19 +29,28 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.model.Units
 import com.example.data.model.WeatherCodeMapper
+import com.example.data.model.hourLabel
+import com.example.ui.components.CenteredContent
+import com.example.ui.components.Glass
+import com.example.ui.components.GlassCard
+import com.example.ui.components.SectionHeader
 import com.example.ui.viewmodel.WeatherUiState
 import com.example.ui.viewmodel.WeatherViewModel
 import java.text.SimpleDateFormat
@@ -57,297 +64,188 @@ fun DayDetailScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val settings by viewModel.settings.collectAsState()
-    val activeLoc by viewModel.activeLocation.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val location by viewModel.activeLocation.collectAsStateWithLifecycle()
 
     val daily = (uiState as? WeatherUiState.Success)?.data?.daily
+    val valid = daily != null && dayIndex in daily.time.indices
+    val info = WeatherCodeMapper.getInfo(if (valid) daily!!.weatherCode[dayIndex] else 0)
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Chi tiết dự báo thời tiết",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+    Box(modifier = modifier.fillMaxSize().background(info.backgroundBrush)) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = { Text("Chi tiết ngày", style = MaterialTheme.typography.titleLarge) },
+                    navigationIcon = {
+                        IconButton(onClick = onBack, modifier = Modifier.testTag("day_detail_back_button")) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Quay lại")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        titleContentColor = Glass.OnGlass,
+                        navigationIconContentColor = Glass.OnGlass
                     )
-                },
-                navigationIcon = {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier.testTag("day_detail_back_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Quay lại"
-                        )
-                    }
-                }
-            )
-        }
-    ) { innerPadding ->
-        if (daily == null || dayIndex !in daily.time.indices) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Không tìm thấy dữ liệu ngày đã chọn.")
-            }
-            return@Scaffold
-        }
-
-        val rawDate = daily.time[dayIndex]
-        val formattedDate = formatFullDate(rawDate)
-        val code = daily.weatherCode[dayIndex]
-        val weatherInfo = WeatherCodeMapper.getInfo(code)
-
-        val rawMin = daily.temperature2mMin[dayIndex]
-        val rawMax = daily.temperature2mMax[dayIndex]
-        val displayMin = if (settings.tempUnit == "F") (rawMin * 9.0 / 5.0) + 32.0 else rawMin
-        val displayMax = if (settings.tempUnit == "F") (rawMax * 9.0 / 5.0) + 32.0 else rawMax
-
-        val uvMax = daily.uvIndexMax?.getOrNull(dayIndex) ?: 5.0
-        val precipSum = daily.precipitationSum?.getOrNull(dayIndex) ?: 0.0
-        val precipProb = daily.precipitationProbabilityMax?.getOrNull(dayIndex) ?: 0
-        val windMax = daily.windSpeed10mMax?.getOrNull(dayIndex) ?: 12.0
-        val sunrise = daily.sunrise?.getOrNull(dayIndex)?.split("T")?.getOrNull(1)?.take(5) ?: "06:00"
-        val sunset = daily.sunset?.getOrNull(dayIndex)?.split("T")?.getOrNull(1)?.take(5) ?: "18:00"
-
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // Header card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
                 )
-            ) {
+            }
+        ) { innerPadding ->
+            if (!valid) {
+                Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
+                    Text("Không tìm thấy dữ liệu của ngày đã chọn.", color = Glass.OnGlass)
+                }
+                return@Scaffold
+            }
+            daily!!
+
+            val unit = settings.tempUnit
+            val min = daily.temperature2mMin[dayIndex]
+            val max = daily.temperature2mMax[dayIndex]
+            val uv = daily.uvIndexMax?.getOrNull(dayIndex)
+            val rainMm = daily.precipitationSum?.getOrNull(dayIndex)
+            val rainProb = daily.precipitationProbabilityMax?.getOrNull(dayIndex)
+            val windMax = daily.windSpeed10mMax?.getOrNull(dayIndex)
+            val sunrise = hourLabel(daily.sunrise?.getOrNull(dayIndex))
+            val sunset = hourLabel(daily.sunset?.getOrNull(dayIndex))
+
+            CenteredContent(modifier = Modifier.padding(innerPadding)) {
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Text(
-                        text = activeLoc.displayName,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Text(
-                        text = formattedDate,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    // Header
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics(mergeDescendants = true) {
+                                contentDescription = "${formatFullDate(daily.time[dayIndex])} tại ${location.displayName}. " +
+                                    "${info.title}, thấp nhất ${Math.round(Units.temp(min, unit))} độ, " +
+                                    "cao nhất ${Math.round(Units.temp(max, unit))} độ."
+                            },
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = formatFullDate(daily.time[dayIndex]),
+                            style = MaterialTheme.typography.titleLarge,
+                            color = Glass.OnGlass,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.clearAndSetSemantics { }
+                        )
+                        Text(
+                            text = location.displayName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Glass.OnGlassMuted,
+                            modifier = Modifier.clearAndSetSemantics { }
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(text = info.iconEmoji, fontSize = 64.sp, modifier = Modifier.clearAndSetSemantics { })
+                        Text(
+                            text = info.title,
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = Glass.OnGlass,
+                            modifier = Modifier.clearAndSetSemantics { }
+                        )
+                        Text(
+                            text = "${Units.tempShort(min, unit)}  —  ${Units.tempShort(max, unit)}",
+                            style = MaterialTheme.typography.displayMedium,
+                            color = Glass.OnGlass,
+                            modifier = Modifier.clearAndSetSemantics { }
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        DetailTile(Icons.Default.WbSunny, "Bình minh", sunrise ?: "—", null, Modifier.weight(1f))
+                        DetailTile(Icons.Default.WbTwilight, "Hoàng hôn", sunset ?: "—", null, Modifier.weight(1f))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        DetailTile(
+                            Icons.Outlined.Umbrella, "Lượng mưa",
+                            rainMm?.let { "%.1f mm".format(Locale.US, it) } ?: "—",
+                            rainProb?.let { "Khả năng mưa $it%" },
+                            Modifier.weight(1f)
+                        )
+                        DetailTile(
+                            Icons.Default.Air, "Gió tối đa",
+                            windMax?.let { Units.wind(it, settings.windUnit) } ?: "—",
+                            windMax?.let { if (it > 30) "Gió mạnh, cẩn thận khi di chuyển" else "Gió nhẹ" },
+                            Modifier.weight(1f)
+                        )
+                    }
+                    DetailTile(
+                        Icons.Outlined.WbSunny, "Chỉ số UV cao nhất",
+                        uv?.let { "%.1f".format(Locale.US, it) } ?: "—",
+                        uv?.let { Units.uvAdvice(it) },
+                        Modifier.fillMaxWidth()
                     )
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    GlassCard {
+                        SectionHeader(icon = Icons.Default.Lightbulb, title = "Lời khuyên cho ngày này")
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = advice(info.isRaining, info.isSevere, uv, Units.temp(max, "C")),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Glass.OnGlass
+                        )
+                    }
 
-                    Text(
-                        text = weatherInfo.iconEmoji,
-                        fontSize = 54.sp
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = weatherInfo.title,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Text(
-                        text = "${displayMin.toInt()}°${settings.tempUnit}  —  ${displayMax.toInt()}°${settings.tempUnit}",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Spacer(modifier = Modifier.height(24.dp))
                 }
             }
-
-            // Key Metrics Grid
-            Text(
-                text = "Các chỉ số chi tiết trong ngày",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                MetricDetailCard(
-                    title = "Bình minh",
-                    value = sunrise,
-                    subtitle = "Mặt trời mọc",
-                    icon = Icons.Default.WbSunny,
-                    tint = Color(0xFFF59E0B),
-                    modifier = Modifier.weight(1f)
-                )
-                MetricDetailCard(
-                    title = "Hoàng hôn",
-                    value = sunset,
-                    subtitle = "Mặt trời lặn",
-                    icon = Icons.Default.WbTwilight,
-                    tint = Color(0xFFEA580C),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                MetricDetailCard(
-                    title = "Chỉ số UV cực đại",
-                    value = "%.1f".format(uvMax),
-                    subtitle = getUvAdvice(uvMax),
-                    icon = Icons.Default.Thermostat,
-                    tint = if (uvMax >= 7) Color(0xFFDC2626) else Color(0xFFF59E0B),
-                    modifier = Modifier.weight(1f)
-                )
-                MetricDetailCard(
-                    title = "Lượng mưa & Xác suất",
-                    value = "%.1f mm".format(precipSum),
-                    subtitle = "Xác suất mưa: $precipProb%",
-                    icon = Icons.Default.Thermostat,
-                    tint = Color(0xFF0284C7),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            MetricDetailCard(
-                title = "Tốc độ gió giật tối đa",
-                value = "%.1f km/h".format(windMax),
-                subtitle = if (windMax > 30) "Gió mạnh, lái xe cẩn trọng" else "Gió thoảng dễ chịu",
-                icon = Icons.Default.Air,
-                tint = Color(0xFF0D9488),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            // Advice card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "💡 Lời khuyên di chuyển & sinh hoạt:",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = buildAdviceText(weatherInfo.isRaining, uvMax, displayMax),
-                        style = MaterialTheme.typography.bodyMedium,
-                        lineHeight = 20.sp
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
 
 @Composable
-private fun MetricDetailCard(
+private fun DetailTile(
+    icon: ImageVector,
     title: String,
     value: String,
-    subtitle: String,
-    icon: ImageVector,
-    tint: Color,
+    note: String?,
     modifier: Modifier = Modifier
 ) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-        )
+    GlassCard(
+        modifier = modifier.semantics(mergeDescendants = true) {
+            contentDescription = "$title: $value${note?.let { ". $it" } ?: ""}"
+        },
+        contentPadding = 14.dp
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(tint.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(imageVector = icon, contentDescription = title, tint = tint, modifier = Modifier.size(16.dp))
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = value,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = Glass.OnGlassMuted, modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(title, style = MaterialTheme.typography.labelMedium, color = Glass.OnGlassMuted)
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(value, style = MaterialTheme.typography.titleLarge, color = Glass.OnGlass)
+        if (note != null) {
+            Text(note, style = MaterialTheme.typography.bodySmall, color = Glass.OnGlassMuted)
         }
     }
 }
 
-private fun getUvAdvice(uv: Double): String {
-    return when {
-        uv < 3 -> "Mức thấp • An toàn"
-        uv < 6 -> "Trung bình • Cần mũ nón"
-        uv < 8 -> "Cao • Bôi kem chống nắng"
-        else -> "Rất nguy hiểm • Tránh nắng gắt"
-    }
-}
-
-private fun buildAdviceText(isRaining: Boolean, uv: Double, maxTemp: Double): String {
+private fun advice(isRaining: Boolean, isSevere: Boolean, uv: Double?, maxTempC: Double): String {
     val items = mutableListOf<String>()
-    if (isRaining) {
-        items.add("• Mang theo áo mưa bộ hoặc ô dù.")
-        items.add("• Giảm tốc độ khi lái xe trên đường ướt.")
-    } else {
-        items.add("• Thời tiết thích hợp cho các hoạt động ngoài trời.")
+    when {
+        isSevere -> items += "• Thời tiết nguy hiểm: hạn chế ra ngoài và theo dõi cảnh báo của cơ quan khí tượng."
+        isRaining -> {
+            items += "• Mang theo áo mưa hoặc ô."
+            items += "• Giảm tốc độ khi đi trên đường ướt."
+        }
+        else -> items += "• Thời tiết thuận lợi cho các hoạt động ngoài trời."
     }
-
-    if (uv >= 6) {
-        items.add("• Đeo kính râm, che chắn chống tia UV từ 10h - 16h.")
-    }
-
-    if (maxTemp >= 34) {
-        items.add("• Nhiệt độ cao, hãy uống đủ nước và tránh ở ngoài trời quá lâu.")
-    }
-
+    if (uv != null && uv >= 6) items += "• Đội mũ, đeo kính râm và bôi kem chống nắng từ 10h đến 16h."
+    if (maxTempC >= 34) items += "• Trời nóng: uống đủ nước và tránh ở ngoài trời quá lâu."
+    if (maxTempC <= 15) items += "• Trời lạnh: mặc ấm, nhất là buổi sáng và tối."
     return items.joinToString("\n")
 }
 
-private fun formatFullDate(isoDate: String): String {
-    return try {
-        val parser = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        val date = parser.parse(isoDate) ?: return isoDate
-        val formatter = SimpleDateFormat("EEEE, 'ngày' dd 'tháng' MM", Locale("vi", "VN"))
-        formatter.format(date).replaceFirstChar { it.uppercase() }
-    } catch (e: Exception) {
-        isoDate
-    }
+private fun formatFullDate(isoDate: String): String = try {
+    val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(isoDate)!!
+    SimpleDateFormat("EEEE, 'ngày' d 'tháng' M", Locale.forLanguageTag("vi-VN")).format(date)
+        .replaceFirstChar { it.uppercase() }
+} catch (e: Exception) {
+    isoDate
 }

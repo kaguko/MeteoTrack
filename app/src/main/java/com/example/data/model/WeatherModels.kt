@@ -56,6 +56,16 @@ data class DailyWeather(
     @Json(name = "wind_speed_10m_max") val windSpeed10mMax: List<Double>? = null
 )
 
+/** Last successful forecast, stored on disk for instant / offline start-up. */
+@JsonClass(generateAdapter = true)
+data class CachedForecast(
+    @Json(name = "locationName") val locationName: String,
+    @Json(name = "latitude") val latitude: Double,
+    @Json(name = "longitude") val longitude: Double,
+    @Json(name = "savedAt") val savedAt: Long,
+    @Json(name = "data") val data: WeatherResponse
+)
+
 @JsonClass(generateAdapter = true)
 data class GeocodingResponse(
     @Json(name = "results") val results: List<GeocodingLocation>? = null
@@ -81,18 +91,41 @@ data class GeocodingLocation(
         }
 }
 
+/**
+ * Presentation info for a WMO weather code.
+ *
+ * Every gradient stop is dark enough for white text to reach WCAG AA (4.5:1);
+ * this is enforced by `WeatherCodeMapperTest`.
+ */
 data class WeatherInfo(
     val title: String,
     val description: String,
     val iconEmoji: String,
     val isRaining: Boolean,
     val isSevere: Boolean,
-    val backgroundBrush: Brush,
-    val cardColor: Color,
-    val textColor: Color
-)
+    val gradient: List<Color>
+) {
+    val backgroundBrush: Brush get() = Brush.verticalGradient(gradient)
+}
 
 object WeatherCodeMapper {
+    private val ClearDay = listOf(Color(0xFF1E3A8A), Color(0xFF1D4ED8), Color(0xFF2563EB))
+    private val PartlyCloudy = listOf(Color(0xFF1E3A8A), Color(0xFF075985), Color(0xFF0369A1))
+    private val Overcast = listOf(Color(0xFF334155), Color(0xFF475569), Color(0xFF64748B))
+    private val Fog = listOf(Color(0xFF3F4856), Color(0xFF59616F), Color(0xFF6B7280))
+    private val Drizzle = listOf(Color(0xFF0F3D55), Color(0xFF155E75), Color(0xFF0E7490))
+    private val Rain = listOf(Color(0xFF1E293B), Color(0xFF1E3A5F), Color(0xFF1D4E89))
+    private val HeavyRain = listOf(Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF334155))
+    private val Snow = listOf(Color(0xFF1E3A8A), Color(0xFF2B5C9E), Color(0xFF3A6EAE))
+    private val Showers = listOf(Color(0xFF1E293B), Color(0xFF1E40AF), Color(0xFF2563EB))
+    private val Thunder = listOf(Color(0xFF090D16), Color(0xFF1E1B4B), Color(0xFF3B0764))
+    private val Night = listOf(Color(0xFF0F172A), Color(0xFF1E1B4B), Color(0xFF311042))
+
+    /** All gradients, exposed so tests can verify contrast. */
+    val allGradients: List<List<Color>> = listOf(
+        ClearDay, PartlyCloudy, Overcast, Fog, Drizzle, Rain, HeavyRain, Snow, Showers, Thunder, Night
+    )
+
     fun getInfo(code: Int, isDay: Boolean = true): WeatherInfo {
         if (!isDay && (code == 0 || code == 1)) {
             return WeatherInfo(
@@ -101,147 +134,45 @@ object WeatherCodeMapper {
                 iconEmoji = "🌙",
                 isRaining = false,
                 isSevere = false,
-                backgroundBrush = Brush.verticalGradient(
-                    listOf(Color(0xFF0F172A), Color(0xFF1E1B4B), Color(0xFF311042))
-                ),
-                cardColor = Color(0x331E293B),
-                textColor = Color.White
+                gradient = Night
             )
         }
 
         return when (code) {
-            0 -> WeatherInfo(
-                title = "Trời quang đãng",
-                description = "Nắng vàng rực rỡ, trời quang đãng không mây",
-                iconEmoji = "☀️",
-                isRaining = false,
-                isSevere = false,
-                backgroundBrush = Brush.verticalGradient(
-                    listOf(Color(0xFF2563EB), Color(0xFF38BDF8), Color(0xFF93C5FD))
-                ),
-                cardColor = Color(0x2BFFFFFF),
-                textColor = Color.White
+            0 -> info("Trời quang đãng", "Nắng đẹp, trời quang không mây", "☀️", ClearDay)
+            1, 2 -> info("Ít mây", "Thời tiết dễ chịu, có nắng xen kẽ mây", "⛅", PartlyCloudy)
+            3 -> info("Nhiều mây", "Bầu trời u ám, râm mát", "☁️", Overcast)
+            45, 48 -> info("Sương mù", "Tầm nhìn giảm, di chuyển cẩn thận", "🌫️", Fog)
+            51, 53, 55 -> info("Mưa phùn", "Mưa phùn lất phất, ẩm ướt nhẹ", "🌦️", Drizzle, raining = true)
+            56, 57 -> info(
+                "Mưa phùn băng giá", "Mưa phùn đóng băng, đường có thể trơn trượt", "🌦️", Drizzle,
+                raining = true, severe = true
             )
-            1, 2 -> WeatherInfo(
-                title = "Ít mây / Mây rải rác",
-                description = "Thời tiết dễ chịu, có nắng xen kẽ mây",
-                iconEmoji = "⛅",
-                isRaining = false,
-                isSevere = false,
-                backgroundBrush = Brush.verticalGradient(
-                    listOf(Color(0xFF0284C7), Color(0xFF38BDF8), Color(0xFFBAE6FD))
-                ),
-                cardColor = Color(0x2BFFFFFF),
-                textColor = Color.White
+            61, 63 -> info("Mưa vừa", "Nên mang theo áo mưa hoặc ô", "🌧️", Rain, raining = true)
+            65 -> info(
+                "Mưa to", "Mưa nặng hạt, chú ý an toàn khi di chuyển", "🌧️", HeavyRain,
+                raining = true, severe = true
             )
-            3 -> WeatherInfo(
-                title = "Nhiều mây / U ám",
-                description = "Bầu trời u ám nhiều mây, râm mát",
-                iconEmoji = "☁️",
-                isRaining = false,
-                isSevere = false,
-                backgroundBrush = Brush.verticalGradient(
-                    listOf(Color(0xFF475569), Color(0xFF64748B), Color(0xFF94A3B8))
-                ),
-                cardColor = Color(0x2BFFFFFF),
-                textColor = Color.White
+            66, 67 -> info(
+                "Mưa băng", "Mưa đóng băng, đường rất trơn — hạn chế di chuyển", "🌧️", HeavyRain,
+                raining = true, severe = true
             )
-            45, 48 -> WeatherInfo(
-                title = "Sương mù",
-                description = "Tầm nhìn giảm, lái xe cẩn thận",
-                iconEmoji = "🌫️",
-                isRaining = false,
-                isSevere = false,
-                backgroundBrush = Brush.verticalGradient(
-                    listOf(Color(0xFF4B5563), Color(0xFF6B7280), Color(0xFF9CA3AF))
-                ),
-                cardColor = Color(0x2BFFFFFF),
-                textColor = Color.White
+            71, 73, 75, 77, 85, 86 -> info("Tuyết rơi", "Trời lạnh, hãy giữ ấm cơ thể", "❄️", Snow, raining = true)
+            80, 81, 82 -> info("Mưa rào", "Mưa rào ngắt quãng, có thể rất to trong thời gian ngắn", "🌧️", Showers, raining = true)
+            95, 96, 99 -> info(
+                "Dông sét", "Dông sét nguy hiểm, hạn chế ra ngoài", "⛈️", Thunder,
+                raining = true, severe = true
             )
-            51, 53, 55 -> WeatherInfo(
-                title = "Mưa phùn",
-                description = "Mưa phùn lất phất, ẩm ướt nhẹ",
-                iconEmoji = "🌦️",
-                isRaining = true,
-                isSevere = false,
-                backgroundBrush = Brush.verticalGradient(
-                    listOf(Color(0xFF334155), Color(0xFF475569), Color(0xFF64748B))
-                ),
-                cardColor = Color(0x2BFFFFFF),
-                textColor = Color.White
-            )
-            61, 63 -> WeatherInfo(
-                title = "Mưa vừa",
-                description = "Mưa rải rác, nên mang theo áo mưa hoặc ô",
-                iconEmoji = "🌧️",
-                isRaining = true,
-                isSevere = false,
-                backgroundBrush = Brush.verticalGradient(
-                    listOf(Color(0xFF1E293B), Color(0xFF334155), Color(0xFF475569))
-                ),
-                cardColor = Color(0x2BFFFFFF),
-                textColor = Color.White
-            )
-            65 -> WeatherInfo(
-                title = "Mưa to diện rộng",
-                description = "Mưa nặng hạt, chú ý an toàn khi di chuyển",
-                iconEmoji = "🌧️",
-                isRaining = true,
-                isSevere = true,
-                backgroundBrush = Brush.verticalGradient(
-                    listOf(Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF334155))
-                ),
-                cardColor = Color(0x2BFFFFFF),
-                textColor = Color.White
-            )
-            71, 73, 75, 77, 85, 86 -> WeatherInfo(
-                title = "Tuyết rơi",
-                description = "Tuyết rơi lạnh giá, giữ ấm cơ thể",
-                iconEmoji = "❄️",
-                isRaining = true,
-                isSevere = false,
-                backgroundBrush = Brush.verticalGradient(
-                    listOf(Color(0xFF60A5FA), Color(0xFF93C5FD), Color(0xFFE0F2FE))
-                ),
-                cardColor = Color(0x2BFFFFFF),
-                textColor = Color.White
-            )
-            80, 81, 82 -> WeatherInfo(
-                title = "Mưa rào từng đợt",
-                description = "Mưa rào xối xả ngắt quãng",
-                iconEmoji = "🌧️",
-                isRaining = true,
-                isSevere = false,
-                backgroundBrush = Brush.verticalGradient(
-                    listOf(Color(0xFF1E293B), Color(0xFF3B82F6), Color(0xFF60A5FA))
-                ),
-                cardColor = Color(0x2BFFFFFF),
-                textColor = Color.White
-            )
-            95, 96, 99 -> WeatherInfo(
-                title = "Dông sét bão to",
-                description = "Dông sét nguy hiểm, hạn chế ra ngoài!",
-                iconEmoji = "⛈️",
-                isRaining = true,
-                isSevere = true,
-                backgroundBrush = Brush.verticalGradient(
-                    listOf(Color(0xFF090D16), Color(0xFF1E1B4B), Color(0xFF3B0764))
-                ),
-                cardColor = Color(0x2BFFFFFF),
-                textColor = Color.White
-            )
-            else -> WeatherInfo(
-                title = "Thời tiết ổn định",
-                description = "Thời tiết bình thường",
-                iconEmoji = "🌤️",
-                isRaining = false,
-                isSevere = false,
-                backgroundBrush = Brush.verticalGradient(
-                    listOf(Color(0xFF2563EB), Color(0xFF38BDF8), Color(0xFFBAE6FD))
-                ),
-                cardColor = Color(0x2BFFFFFF),
-                textColor = Color.White
-            )
+            else -> info("Thời tiết ổn định", "Không có hiện tượng đặc biệt", "🌤️", ClearDay)
         }
     }
+
+    private fun info(
+        title: String,
+        description: String,
+        emoji: String,
+        gradient: List<Color>,
+        raining: Boolean = false,
+        severe: Boolean = false
+    ) = WeatherInfo(title, description, emoji, raining, severe, gradient)
 }

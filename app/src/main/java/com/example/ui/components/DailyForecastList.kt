@@ -7,35 +7,39 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.data.model.DailyWeather
+import com.example.data.model.Units
 import com.example.data.model.WeatherCodeMapper
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 @Composable
@@ -46,79 +50,47 @@ fun DailyForecastList(
     modifier: Modifier = Modifier
 ) {
     val count = daily.time.size.coerceAtMost(7)
+    val weekMin = remember(daily) { daily.temperature2mMin.take(count).minOrNull() ?: 0.0 }
+    val weekMax = remember(daily) { daily.temperature2mMax.take(count).maxOrNull() ?: 0.0 }
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("daily_forecast_card"),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color.White.copy(alpha = 0.16f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    GlassCard(
+        modifier = modifier.testTag("daily_forecast_card"),
+        contentPadding = 0.dp
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CalendarMonth,
-                    contentDescription = "Dự báo 7 ngày tới",
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
+        SectionHeader(
+            icon = Icons.Default.CalendarMonth,
+            title = "7 ngày tới",
+            trailing = "Chạm để xem chi tiết",
+            modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 4.dp)
+        )
+
+        for (i in 0 until count) {
+            val label = dayLabel(daily.time.getOrNull(i).orEmpty(), isToday = i == 0)
+            val info = WeatherCodeMapper.getInfo(daily.weatherCode.getOrNull(i) ?: 0)
+            val min = daily.temperature2mMin.getOrNull(i) ?: 0.0
+            val max = daily.temperature2mMax.getOrNull(i) ?: 0.0
+            val rain = daily.precipitationProbabilityMax?.getOrNull(i) ?: 0
+
+            DailyItemRow(
+                dayLabel = label,
+                emoji = info.iconEmoji,
+                title = info.title,
+                min = min,
+                max = max,
+                weekMin = weekMin,
+                weekMax = weekMax,
+                tempUnit = tempUnit,
+                rainProb = rain,
+                onClick = { onDayClick(i) }
+            )
+            if (i < count - 1) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 18.dp),
+                    color = Color.White.copy(alpha = 0.12f)
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Dự báo 7 ngày tới (chạm để xem chi tiết)",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                for (i in 0 until count) {
-                    val rawDate = daily.time.getOrNull(i) ?: ""
-                    val dayLabel = formatDayLabel(rawDate, i == 0)
-                    val code = daily.weatherCode.getOrNull(i) ?: 0
-                    val weatherInfo = WeatherCodeMapper.getInfo(code)
-
-                    val rawMin = daily.temperature2mMin.getOrNull(i) ?: 0.0
-                    val rawMax = daily.temperature2mMax.getOrNull(i) ?: 0.0
-                    val displayMin = if (tempUnit == "F") (rawMin * 9.0 / 5.0) + 32.0 else rawMin
-                    val displayMax = if (tempUnit == "F") (rawMax * 9.0 / 5.0) + 32.0 else rawMax
-
-                    val rainProb = daily.precipitationProbabilityMax?.getOrNull(i) ?: 0
-
-                    DailyItemRow(
-                        dayLabel = dayLabel,
-                        emoji = weatherInfo.iconEmoji,
-                        title = weatherInfo.title,
-                        minTemp = "${displayMin.toInt()}°",
-                        maxTemp = "${displayMax.toInt()}°",
-                        rainProb = rainProb,
-                        onClick = { onDayClick(i) }
-                    )
-
-                    if (i < count - 1) {
-                        HorizontalDivider(
-                            color = Color.White.copy(alpha = 0.1f),
-                            thickness = 0.8.dp
-                        )
-                    }
-                }
             }
         }
+        Spacer(modifier = Modifier.height(6.dp))
     }
 }
 
@@ -127,85 +99,127 @@ private fun DailyItemRow(
     dayLabel: String,
     emoji: String,
     title: String,
-    minTemp: String,
-    maxTemp: String,
+    min: Double,
+    max: Double,
+    weekMin: Double,
+    weekMax: Double,
+    tempUnit: String,
     rainProb: Int,
     onClick: () -> Unit
 ) {
+    val spoken = buildString {
+        append(dayLabel).append(", ").append(title)
+        append(", thấp nhất ${Math.round(Units.temp(min, tempUnit))} độ")
+        append(", cao nhất ${Math.round(Units.temp(max, tempUnit))} độ")
+        if (rainProb > 0) append(", khả năng mưa $rainProb%")
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 8.dp, horizontal = 4.dp),
+            .heightIn(min = 56.dp)
+            .clickable(role = Role.Button, onClickLabel = "Xem chi tiết", onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 8.dp)
+            .semantics(mergeDescendants = true) { contentDescription = spoken },
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = dayLabel,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = Color.White,
-            modifier = Modifier.width(90.dp)
-        )
-
-        Text(
-            text = emoji,
-            fontSize = 20.sp,
-            modifier = Modifier.padding(horizontal = 6.dp)
-        )
-
-        Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1.1f)) {
             Text(
-                text = title,
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.9f),
-                maxLines = 1
+                text = dayLabel,
+                style = MaterialTheme.typography.titleSmall,
+                color = Glass.OnGlass,
+                modifier = Modifier.clearAndSetSemantics { }
             )
             if (rainProb > 0) {
                 Text(
-                    text = "💧 Khả năng mưa: $rainProb%",
-                    fontSize = 11.sp,
-                    color = Color(0xFFBAE6FD)
+                    text = "💧 $rainProb%",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Glass.OnGlassMuted,
+                    modifier = Modifier.clearAndSetSemantics { }
                 )
             }
         }
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = minTemp,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.7f)
+        Text(
+            text = emoji,
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier
+                .padding(horizontal = 10.dp)
+                .clearAndSetSemantics { }
+        )
+
+        Text(
+            text = Units.tempShort(min, tempUnit),
+            style = MaterialTheme.typography.bodyMedium,
+            color = Glass.OnGlassMuted,
+            modifier = Modifier
+                .width(36.dp)
+                .clearAndSetSemantics { },
+            maxLines = 1
+        )
+        TemperatureRangeBar(
+            min = min, max = max, weekMin = weekMin, weekMax = weekMax,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 6.dp)
+        )
+        Text(
+            text = Units.tempShort(max, tempUnit),
+            style = MaterialTheme.typography.titleSmall,
+            color = Glass.OnGlass,
+            modifier = Modifier
+                .width(36.dp)
+                .clearAndSetSemantics { },
+            maxLines = 1
+        )
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = Glass.OnGlassMuted,
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+/** Where today's min–max sits inside the week's range. */
+@Composable
+private fun TemperatureRangeBar(
+    min: Double,
+    max: Double,
+    weekMin: Double,
+    weekMax: Double,
+    modifier: Modifier = Modifier
+) {
+    val span = (weekMax - weekMin).coerceAtLeast(1.0)
+    val start = ((min - weekMin) / span).toFloat().coerceIn(0f, 1f)
+    val end = ((max - weekMin) / span).toFloat().coerceIn(start, 1f)
+
+    Box(
+        modifier = modifier
+            .height(6.dp)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.2f))
+            .clearAndSetSemantics { }
+    ) {
+        Row(modifier = Modifier.fillMaxHeight().fillMaxWidth()) {
+            if (start > 0f) Spacer(modifier = Modifier.weight(start))
+            Box(
+                modifier = Modifier
+                    .weight((end - start).coerceAtLeast(0.08f))
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(50))
+                    .background(Brush.horizontalGradient(listOf(Color(0xFF7DD3FC), Glass.Accent)))
             )
-            Text(
-                text = " / ",
-                color = Color.White.copy(alpha = 0.4f)
-            )
-            Text(
-                text = maxTemp,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                contentDescription = "Chi tiết",
-                tint = Color.White.copy(alpha = 0.5f),
-                modifier = Modifier.size(12.dp)
-            )
+            if (end < 1f) Spacer(modifier = Modifier.weight(1f - end))
         }
     }
 }
 
-private fun formatDayLabel(isoDate: String, isFirst: Boolean): String {
-    if (isFirst) return "Hôm nay"
+internal fun dayLabel(isoDate: String, isToday: Boolean): String {
+    if (isToday) return "Hôm nay"
     return try {
-        val parser = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        val date = parser.parse(isoDate) ?: return isoDate
-        val formatter = SimpleDateFormat("EEEE", Locale("vi", "VN"))
-        formatter.format(date).replaceFirstChar { it.uppercase() }
+        val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(isoDate) ?: return isoDate
+        SimpleDateFormat("EEEE", Locale.forLanguageTag("vi-VN")).format(date).replaceFirstChar { it.uppercase() }
     } catch (e: Exception) {
         isoDate
     }

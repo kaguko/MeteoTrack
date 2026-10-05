@@ -1,11 +1,7 @@
 package com.example.ui.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,257 +9,191 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Compress
-import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material.icons.outlined.Umbrella
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.CurrentWeather
+import com.example.data.model.Units
 import com.example.data.model.WeatherCodeMapper
 import java.util.Locale
 
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * Hero block of the home screen: the big temperature, a one-line summary and the key readings.
+ *
+ * @param todayHigh / [todayLow] today's range in °C, shown next to the feels-like value.
+ */
 @Composable
 fun WeatherCurrentCard(
-    locationName: String,
-    isGps: Boolean,
     current: CurrentWeather,
+    todayHigh: Double?,
+    todayLow: Double?,
     tempUnit: String,
     windUnit: String,
     onAiInsightsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val weatherInfo = WeatherCodeMapper.getInfo(current.weatherCode, current.isDay == 1)
+    val info = WeatherCodeMapper.getInfo(current.weatherCode, current.isDay == 1)
+    val temp = Math.round(Units.temp(current.temperature2m, tempUnit))
+    val feelsLike = Units.tempWithUnit(current.apparentTemperature, tempUnit)
 
-    val displayTemp = if (tempUnit == "F") {
-        (current.temperature2m * 9.0 / 5.0) + 32.0
-    } else {
-        current.temperature2m
-    }
+    val range = if (todayHigh != null && todayLow != null) {
+        "Cao ${Units.tempShort(todayHigh, tempUnit)} · Thấp ${Units.tempShort(todayLow, tempUnit)}"
+    } else null
 
-    val displayFeelsLike = if (tempUnit == "F") {
-        (current.apparentTemperature * 9.0 / 5.0) + 32.0
-    } else {
-        current.apparentTemperature
-    }
+    val summary = "${info.title}, $temp độ ${if (tempUnit == "F") "F" else "C"}. " +
+        "Cảm giác như ${Math.round(Units.temp(current.apparentTemperature, tempUnit))} độ."
 
-    val displayWind = when (windUnit) {
-        "ms" -> "%.1f m/s".format(Locale.US, current.windSpeed10m / 3.6)
-        "mph" -> "%.1f mph".format(Locale.US, current.windSpeed10m * 0.621371)
-        else -> "%.1f km/h".format(Locale.US, current.windSpeed10m)
-    }
-
-    Card(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .testTag("weather_current_card"),
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color.White.copy(alpha = 0.18f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // The whole headline reads as one sentence to screen readers; the emoji is purely decorative.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .semantics(mergeDescendants = true) { contentDescription = summary },
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Location Header Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f, fill = false)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.25f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MyLocation,
-                            contentDescription = if (isGps) "GPS Location" else "Selected Location",
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = locationName,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            maxLines = 1
-                        )
-                        Text(
-                            text = if (isGps) "GPS thời gian thực" else "Địa điểm đã chọn",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.8f)
-                        )
-                    }
-                }
-
-                // AI Recommend Button
-                Button(
-                    onClick = onAiInsightsClick,
-                    shape = RoundedCornerShape(20.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.White.copy(alpha = 0.25f),
-                        contentColor = Color.White
-                    ),
-                    modifier = Modifier.testTag("ai_insights_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = "AI Gợi ý",
-                        modifier = Modifier.size(16.dp),
-                        tint = Color(0xFFFFD54F)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Gợi ý AI",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Main Weather Emoji & Temperature
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = weatherInfo.iconEmoji,
-                    fontSize = 58.sp
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text(
-                        text = "${displayTemp.toInt()}°${tempUnit}",
-                        fontSize = 54.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                        lineHeight = 56.sp
-                    )
-                    Text(
-                        text = "Cảm giác ${displayFeelsLike.toInt()}°$tempUnit",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.85f)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
             Text(
-                text = weatherInfo.title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
+                text = info.iconEmoji,
+                fontSize = 56.sp,
+                modifier = Modifier.clearAndSetSemantics { }
             )
-
             Text(
-                text = weatherInfo.description,
+                text = buildAnnotatedString {
+                    append("$temp")
+                    withStyle(SpanStyle(fontSize = 32.sp, fontWeight = FontWeight.Normal)) {
+                        append("°$tempUnit")
+                    }
+                },
+                style = MaterialTheme.typography.displayLarge,
+                color = Glass.OnGlass,
+                modifier = Modifier.clearAndSetSemantics { }
+            )
+            Text(
+                text = info.title,
+                style = MaterialTheme.typography.headlineSmall,
+                color = Glass.OnGlass,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.clearAndSetSemantics { }
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = listOfNotNull(range, "Cảm giác $feelsLike").joinToString(" · "),
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.85f),
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                color = Glass.OnGlassMuted,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.clearAndSetSemantics { }
             )
+            Text(
+                text = info.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = Glass.OnGlassMuted,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .padding(horizontal = 16.dp, vertical = 2.dp)
+                    .clearAndSetSemantics { }
+            )
+        }
 
-            Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-            // Metrics row (Humidity, Wind, Pressure, Rain)
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                WeatherMetricItem(
-                    icon = Icons.Default.WaterDrop,
-                    label = "Độ ẩm",
-                    value = "${current.relativeHumidity2m}%"
-                )
-                WeatherMetricItem(
-                    icon = Icons.Default.Air,
-                    label = "Tốc độ gió",
-                    value = displayWind
-                )
-                WeatherMetricItem(
-                    icon = Icons.Default.Compress,
-                    label = "Áp suất",
-                    value = "${(current.surfacePressure ?: 1013.0).toInt()} hPa"
-                )
+        GlassCard(contentPadding = 14.dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Metric(Icons.Default.WaterDrop, "Độ ẩm", "${current.relativeHumidity2m}%", Modifier.weight(1f))
+                    Metric(
+                        Icons.Default.Air, "Gió",
+                        buildString {
+                            append(Units.wind(current.windSpeed10m, windUnit))
+                            current.windDirection10m?.let { append(" · ").append(Units.windDirection(it)) }
+                        },
+                        Modifier.weight(1f)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Metric(
+                        Icons.Default.Compress, "Áp suất",
+                        current.surfacePressure?.let { "${it.toInt()} hPa" } ?: "—",
+                        Modifier.weight(1f)
+                    )
+                    Metric(
+                        Icons.Outlined.Umbrella, "Lượng mưa",
+                        "%.1f mm".format(Locale.US, current.precipitation),
+                        Modifier.weight(1f)
+                    )
+                }
             }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Button(
+            onClick = onAiInsightsClick,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Glass.FillStrong,
+                contentColor = Glass.OnGlass
+            ),
+            modifier = Modifier.testTag("ai_insights_button")
+        ) {
+            Icon(
+                imageVector = Icons.Default.AutoAwesome,
+                contentDescription = null,
+                tint = Glass.Accent,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Gợi ý cho hôm nay", style = MaterialTheme.typography.labelLarge)
         }
     }
 }
 
 @Composable
-private fun WeatherMetricItem(
+private fun Metric(
     icon: ImageVector,
     label: String,
-    value: String
+    value: String,
+    modifier: Modifier = Modifier
 ) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.White.copy(alpha = 0.15f))
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+    Row(
+        modifier = modifier.semantics(mergeDescendants = true) { contentDescription = "$label: $value" },
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = Color.White,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Column {
-                Text(
-                    text = label,
-                    fontSize = 11.sp,
-                    color = Color.White.copy(alpha = 0.75f)
-                )
-                Text(
-                    text = value,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            }
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = Glass.OnGlassMuted,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column {
+            Text(text = label, style = MaterialTheme.typography.labelMedium, color = Glass.OnGlassMuted)
+            Text(text = value, style = MaterialTheme.typography.titleSmall, color = Glass.OnGlass)
         }
     }
 }

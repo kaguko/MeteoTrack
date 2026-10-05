@@ -16,3 +16,10 @@
 local.properties
 .env
 debug.keystore
+
+# Signing & build output
+*.jks
+*.keystore
+app/release/
+*.apk
+*.aab

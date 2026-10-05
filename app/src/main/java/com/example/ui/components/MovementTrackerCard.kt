@@ -8,21 +8,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DirectionsCar
-import androidx.compose.material.icons.filled.ElectricBolt
-import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.Navigation
-import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -36,180 +30,136 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import java.util.Locale
+
+/** Why the card is (not) tracking, so the subtitle can be honest about it. */
+enum class TrackingStatus { ACTIVE, PAUSED, NEEDS_PERMISSION, VIEWING_OTHER_PLACE }
 
 @Composable
 fun MovementTrackerCard(
     distanceKm: Double,
     thresholdKm: Double,
-    isTrackingActive: Boolean,
+    status: TrackingStatus,
+    /** Whether tracking is switched on (it may still be inactive, e.g. while viewing another city). */
+    isOn: Boolean,
     onToggleTracking: () -> Unit,
-    onSimulateMove: (Double) -> Unit,
-    onManualRefresh: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Debug-only shortcut; pass null in release builds. */
+    onSimulateMove: (() -> Unit)? = null
 ) {
+    val isActive = status == TrackingStatus.ACTIVE
     val progress = (distanceKm / thresholdKm).coerceIn(0.0, 1.0).toFloat()
+    val threshold = "%.0f".format(Locale.US, thresholdKm)
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("movement_tracker_card"),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color.White.copy(alpha = 0.16f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Column(
+    val subtitle = when (status) {
+        TrackingStatus.ACTIVE -> "Cập nhật khi bạn đi quá $threshold km"
+        TrackingStatus.PAUSED -> "Đang tạm dừng"
+        TrackingStatus.NEEDS_PERMISSION -> "Cần quyền vị trí để hoạt động"
+        TrackingStatus.VIEWING_OTHER_PLACE -> "Chỉ áp dụng khi xem vị trí GPS của bạn"
+    }
+    val trackingEnabled = status != TrackingStatus.NEEDS_PERMISSION
+
+    GlassCard(modifier = modifier.testTag("movement_tracker_card")) {
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp)
+                .toggleable(
+                    value = isOn,
+                    enabled = trackingEnabled,
+                    role = Role.Switch,
+                    onValueChange = { onToggleTracking() }
+                )
+                .semantics(mergeDescendants = true) {
+                    contentDescription = "Tự làm mới khi di chuyển. $subtitle"
+                },
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(if (isActive) Color(0x3322C55E) else Color(0x24FFFFFF)),
+                contentAlignment = Alignment.Center
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (isTrackingActive) Color(0xFF10B981).copy(alpha = 0.3f)
-                                else Color.White.copy(alpha = 0.2f)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Navigation,
-                            contentDescription = "Movement Tracker",
-                            tint = if (isTrackingActive) Color(0xFF10B981) else Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "Tự động làm mới khi di chuyển",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = if (isTrackingActive) "Đang theo dõi GPS (ngưỡng >${thresholdKm.toInt()}km)" else "Đang tạm dừng theo dõi",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.8f)
-                        )
-                    }
-                }
-
-                Switch(
-                    checked = isTrackingActive,
-                    onCheckedChange = { onToggleTracking() },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = Color(0xFF10B981),
-                        uncheckedThumbColor = Color.White.copy(alpha = 0.7f),
-                        uncheckedTrackColor = Color.White.copy(alpha = 0.2f)
-                    ),
-                    modifier = Modifier.testTag("toggle_tracking_switch")
+                Icon(
+                    imageVector = Icons.Default.Navigation,
+                    contentDescription = null,
+                    tint = if (isActive) Color(0xFF86EFAC) else Glass.OnGlass,
+                    modifier = Modifier.size(22.dp)
                 )
             }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Progress bar showing distance moved towards threshold
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "Khoảng cách đã đi: %.2f km".format(Locale.US, distanceKm),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = "Mục tiêu: %.1f km".format(Locale.US, thresholdKm),
-                        fontSize = 13.sp,
-                        color = Color.White.copy(alpha = 0.85f)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(8.dp)
-                        .clip(RoundedCornerShape(4.dp)),
-                    color = if (progress >= 1f) Color(0xFFF59E0B) else Color(0xFF38BDF8),
-                    trackColor = Color.White.copy(alpha = 0.2f)
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Tự làm mới khi di chuyển",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Glass.OnGlass
                 )
-
-                if (distanceKm >= thresholdKm) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "✓ Đã đủ ngưỡng di chuyển! Thời tiết tự động làm mới.",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFFFDE047)
-                    )
-                }
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Glass.OnGlassMuted
+                )
             }
+            Switch(
+                checked = isOn,
+                onCheckedChange = null,
+                enabled = trackingEnabled,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = Color(0xFF16A34A),
+                    uncheckedThumbColor = Color.White,
+                    uncheckedTrackColor = Color(0x4DFFFFFF),
+                    uncheckedBorderColor = Color(0x80FFFFFF)
+                )
+            )
+        }
 
+        if (isActive) {
             Spacer(modifier = Modifier.height(14.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(
+                    text = "Đã di chuyển %.1f km".format(Locale.US, distanceKm),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Glass.OnGlass
+                )
+                Text(
+                    text = "Ngưỡng $threshold km",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Glass.OnGlassMuted
+                )
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .semantics { contentDescription = "Đã đi ${(progress * 100).toInt()}% quãng đường để làm mới" },
+                color = if (progress >= 1f) Glass.Accent else Color(0xFF7DD3FC),
+                trackColor = Color(0x33FFFFFF),
+                gapSize = 0.dp,
+                drawStopIndicator = {}
+            )
+        }
 
-            // Actions: Simulate Move & Manual Refresh
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+        if (onSimulateMove != null) {
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedButton(
+                onClick = onSimulateMove,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("simulate_move_button"),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Glass.OnGlass)
             ) {
-                OutlinedButton(
-                    onClick = onManualRefresh,
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("manual_refresh_button"),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = Color.White
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Sync,
-                        contentDescription = "Làm mới",
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Cập nhật ngay", fontSize = 12.sp)
-                }
-
-                Button(
-                    onClick = { onSimulateMove(5.5) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("simulate_move_button"),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.White.copy(alpha = 0.28f),
-                        contentColor = Color.White
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.DirectionsCar,
-                        contentDescription = "Mô phỏng",
-                        modifier = Modifier.size(16.dp),
-                        tint = Color(0xFFFFD54F)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Thử đi +5.5km", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
+                Icon(Icons.Default.DirectionsCar, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Thử đi +5,5 km (chỉ bản debug)")
             }
         }
     }

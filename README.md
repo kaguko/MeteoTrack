@@ -55,7 +55,7 @@
 | 14 | **Dynamic Theme theo thời tiết** | Tự động chuyển đổi màu gradient nền mượt mà theo mã WMO Weather Code: Nắng vàng trời xanh, Mây rải rác, U ám xám xanh, Mưa xám đậm, Dông sét tím sẫm, Đêm sao tím than. |
 | 15 | **Biểu đồ nhiệt độ Canvas** | Tự vẽ đường cong Bezier (`CubicTo`) trực quan trên `Canvas` thể hiện xu hướng nhiệt độ trong 24 giờ, kèm hiệu ứng gradient vùng dưới đường cong và các điểm dữ liệu mốc giờ. |
 | 16 | **Cài đặt đơn vị & Ngưỡng di chuyển** | Lưu cấu hình người dùng bằng `DataStore Preferences`: chọn đơn vị nhiệt độ (°C / °F), đơn vị gió (km/h, m/s, mph), khoảng cách tối thiểu (1km, 3km, 5km, 10km), chu kỳ thời gian (15, 30, 60 phút). |
-| 17 | **Bộ mô phỏng di chuyển (`+5.5km`)** | Nút *"Thử đi +5.5km"* cho phép kiểm thử tính năng tự động làm mới và ghi nhật ký di chuyển trực tiếp trên máy ảo mà không cần di chuyển thực tế. |
+| 17 | **Bộ mô phỏng di chuyển (`+5.5km`)** | *Chỉ có trong bản debug.* Nút *"Thử đi +5,5 km"* cho phép kiểm thử tính năng tự động làm mới và ghi nhật ký di chuyển trực tiếp trên máy ảo mà không cần di chuyển thực tế. |
 | 18 | **Adaptive Icon (Material You)** | Thiết kế custom adaptive icon chuẩn Android với logo thời tiết trên nền `#1565C0`, đầy đủ các thư mục density (`mdpi`, `hdpi`, `xhdpi`, `xxhdpi`, `xxxhdpi`). |
 
 ---
@@ -158,3 +158,40 @@ app/src/main/
    - Bấm **"Thử thông báo"** để kích hoạt thông báo mẫu xuất hiện trên thanh thông báo của Android.
 5. **Xem chi tiết ngày & Biểu đồ**:
    - Chạm vào bất kỳ ngày nào trong danh sách **7 ngày tới** để mở trang chi tiết chỉ số UV, mặt trời mọc/lặn và lời khuyên sinh hoạt.
+
+---
+
+## 📦 Build & phát hành
+
+**Yêu cầu:** JDK 17+, Android SDK 36. Chạy `./gradlew` (wrapper dùng Gradle 9.1.0).
+
+```bash
+./gradlew :app:testDebugUnitTest      # unit test (đơn vị, tương phản màu, ánh xạ mã thời tiết…)
+./gradlew :app:lintDebug              # lint
+./gradlew :app:assembleDebug          # APK debug (có nút mô phỏng di chuyển)
+./gradlew :app:assembleRelease        # APK release: bật R8 + shrinkResources (~2,4 MB)
+```
+
+**Ký bản release** – không lưu khoá trong repo; truyền qua biến môi trường:
+
+```bash
+export KEYSTORE_PATH=/đường/dẫn/upload-key.jks STORE_PASSWORD=... KEY_PASSWORD=... [KEY_ALIAS=upload]
+./gradlew :app:bundleRelease          # AAB để đưa lên Google Play
+```
+Thiếu các biến này thì `assembleRelease` vẫn chạy nhưng cho APK chưa ký.
+
+CI (GitHub Actions) ở `.github/workflows/android.yml` chạy test, lint và build release cho mỗi push / PR.
+
+### ⚠️ Việc cần xử lý trước khi phát hành công khai
+1. **Open-Meteo**: gói miễn phí chỉ dành cho *mục đích phi thương mại*. Nếu bán/thu phí hoặc có quảng cáo, cần gói API thương mại (đổi `baseUrl` trong `ApiClient.kt`). Ứng dụng đã ghi nguồn (CC BY 4.0) ở màn hình chính và Cài đặt.
+2. **Gemini API key**: khoá đặt trong `.env` sẽ bị nhúng vào APK và có thể bị trích xuất. Để trống (ứng dụng dùng gợi ý ngoại tuyến, có ghi chú rõ cho người dùng) hoặc chuyển lời gọi qua backend của bạn.
+3. **Application ID** hiện là `com.aistudio.meteotrack.vwqy` (sinh tự động) – đổi trong `app/build.gradle.kts` *trước* lần đăng đầu tiên, vì không thể đổi sau đó.
+4. **Chính sách quyền riêng tư**: Google Play yêu cầu URL chính sách khi dùng quyền vị trí. Nội dung tóm tắt có trong Cài đặt → Quyền riêng tư.
+5. Giao diện hiện chỉ có tiếng Việt (chuỗi nằm trong code); muốn đa ngôn ngữ cần chuyển sang `strings.xml`.
+
+## 🎨 Nguyên tắc UX/UI
+- **Dễ đọc**: chữ trắng trên nền gradient đạt WCAG AA (có unit test kiểm tra từng màu); thẻ dùng lớp phủ tối thay vì trắng mờ; cỡ chữ tối thiểu 12sp và theo cỡ chữ hệ thống.
+- **Dễ tiếp cận**: vùng chạm ≥ 48dp, TalkBack đọc gọn từng thẻ (nhiệt độ, dự báo giờ/ngày…), emoji chỉ là trang trí, công tắc bấm được cả hàng.
+- **Không gây khó chịu**: màn chào giải thích lý do xin quyền trước khi hiện hộp thoại hệ thống; có thể bỏ qua; làm mới giữ nguyên dữ liệu cũ thay vì xoay vòng toàn màn hình; kéo xuống để làm mới; dữ liệu lần trước hiện ngay cả khi offline.
+- **An toàn thao tác**: xóa địa điểm/cảnh báo có “Hoàn tác”, xóa nhật ký có xác nhận, nhập ngưỡng cảnh báo có kiểm tra hợp lệ.
+- **Tablet/xoay ngang**: nội dung giới hạn 640dp và căn giữa.

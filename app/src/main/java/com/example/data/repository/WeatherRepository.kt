@@ -9,11 +9,14 @@ import com.example.data.local.WeatherAlertEntity
 import com.example.data.model.GeocodingLocation
 import com.example.data.model.WeatherCodeMapper
 import com.example.data.model.WeatherResponse
+import com.example.data.model.CachedForecast
 import com.example.data.remote.ApiClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class WeatherRepository(
     private val context: Context,
@@ -33,24 +36,48 @@ class WeatherRepository(
     val weatherAlerts: Flow<List<WeatherAlertEntity>> =
         database.weatherAlertDao().getAll()
 
+    private val cacheFile = File(context.filesDir, "last_forecast.json")
+    private val cacheAdapter = ApiClient.moshi.adapter(CachedForecast::class.java)
+
     suspend fun getForecast(lat: Double, lng: Double): Result<WeatherResponse> = withContext(Dispatchers.IO) {
         try {
-            val response = openMeteoApi.getForecast(latitude = lat, longitude = lng)
-            Result.success(response)
+            Result.success(openMeteoApi.getForecast(latitude = lat, longitude = lng))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Log.e("WeatherRepository", "Failed to fetch forecast for ($lat, $lng)", e)
+            Log.w("WeatherRepository", "Failed to fetch forecast", e)
             Result.failure(e)
         }
     }
 
-    suspend fun searchLocations(query: String): List<GeocodingLocation> = withContext(Dispatchers.IO) {
-        if (query.isBlank()) return@withContext emptyList()
+    /** Persists the latest forecast so the app can show something instantly (and offline) on next launch. */
+    suspend fun saveCache(forecast: CachedForecast) = withContext(Dispatchers.IO) {
         try {
-            val response = geocodingApi.searchLocations(name = query.trim())
-            response.results ?: emptyList()
+            cacheFile.writeText(cacheAdapter.toJson(forecast))
         } catch (e: Exception) {
-            Log.e("WeatherRepository", "Failed searching locations", e)
-            emptyList()
+            Log.w("WeatherRepository", "Failed to write forecast cache", e)
+        }
+    }
+
+    suspend fun loadCache(): CachedForecast? = withContext(Dispatchers.IO) {
+        try {
+            if (cacheFile.exists()) cacheAdapter.fromJson(cacheFile.readText()) else null
+        } catch (e: Exception) {
+            Log.w("WeatherRepository", "Failed to read forecast cache", e)
+            null
+        }
+    }
+
+    /** Result.failure means the request itself failed (offline, server error); an empty list means "no match". */
+    suspend fun searchLocations(query: String): Result<List<GeocodingLocation>> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext Result.success(emptyList())
+        try {
+            Result.success(geocodingApi.searchLocations(name = query.trim()).results ?: emptyList())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("WeatherRepository", "Failed searching locations", e)
+            Result.failure(e)
         }
     }
 
@@ -109,7 +136,8 @@ class WeatherRepository(
                 if (now - lastTriggered > 60 * 60 * 1000L) {
                     notificationHelper.showWeatherAlertNotification(
                         title = "⚠️ " + alert.name,
-                        message = alertMessage
+                        message = alertMessage,
+                        id = NotificationHelper.DEFAULT_NOTIFICATION_ID + alert.id.toInt()
                     )
                     database.weatherAlertDao().setTriggered(alert.id, true, now)
                 }
@@ -147,7 +175,18 @@ class WeatherRepository(
         database.travelHistoryDao().clearAll()
     }
 
-    suspend fun addFavoritePlace(name: String, address: String, lat: Double, lng: Double, category: String = "CUSTOM") = withContext(Dispatchers.IO) {
+    /** Returns false when a place within ~1 km is already saved. */
+    suspend fun addFavoritePlace(
+        name: String,
+        address: String,
+        lat: Double,
+        lng: Double,
+        category: String = "CUSTOM"
+    ): Boolean = withContext(Dispatchers.IO) {
+        val existing = database.favoritePlaceDao().getAll().first()
+        if (existing.any { LocationTracker.distanceKm(it.latitude, it.longitude, lat, lng) < 1.0 }) {
+            return@withContext false
+        }
         database.favoritePlaceDao().insert(
             FavoritePlaceEntity(
                 name = name,
@@ -157,6 +196,12 @@ class WeatherRepository(
                 category = category
             )
         )
+        true
+    }
+
+    /** Re-inserts a previously deleted place (undo). */
+    suspend fun restoreFavoritePlace(place: FavoritePlaceEntity) = withContext(Dispatchers.IO) {
+        database.favoritePlaceDao().insert(place)
     }
 
     suspend fun removeFavoritePlace(place: FavoritePlaceEntity) = withContext(Dispatchers.IO) {

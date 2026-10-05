@@ -15,8 +15,7 @@ import com.example.R
 class NotificationHelper(private val context: Context) {
     companion object {
         const val CHANNEL_ID = "meteo_weather_alerts"
-        const val CHANNEL_NAME = "Cảnh báo thời tiết MeteoTrack"
-        const val NOTIFICATION_ID = 1001
+        const val DEFAULT_NOTIFICATION_ID = 1001
     }
 
     init {
@@ -27,50 +26,45 @@ class NotificationHelper(private val context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                CHANNEL_NAME,
+                context.getString(R.string.notification_channel_name),
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Thông báo cảnh báo nhiệt độ, mưa dông và di chuyển"
-                enableLights(true)
+                description = context.getString(R.string.notification_channel_description)
                 enableVibration(true)
             }
-            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(channel)
+            context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 
-    fun showWeatherAlertNotification(title: String, message: String) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(
-                    context,
-                    android.Manifest.permission.POST_NOTIFICATIONS
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                return
-            }
-        }
+    /** [id] lets different alerts coexist instead of overwriting each other. */
+    fun showWeatherAlertNotification(
+        title: String,
+        message: String,
+        id: Int = DEFAULT_NOTIFICATION_ID
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) return
 
         val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val pendingIntent = PendingIntent.getActivity(
-            context,
-            0,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_weather_logo)
+            .setSmallIcon(R.drawable.ic_stat_weather)
             .setContentTitle(title)
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .build()
 
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(NOTIFICATION_ID, notification)
+        context.getSystemService(NotificationManager::class.java).notify(id, notification)
     }
 }

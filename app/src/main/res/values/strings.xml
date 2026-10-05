@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">MeteoTrack</string>
+    <string name="notification_channel_name">Cảnh báo thời tiết</string>
+    <string name="notification_channel_description">Thông báo khi thời tiết vượt ngưỡng bạn đã đặt</string>
 </resources>

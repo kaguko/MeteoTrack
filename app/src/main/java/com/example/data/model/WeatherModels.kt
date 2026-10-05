@@ -37,7 +37,8 @@ data class HourlyWeather(
     @Json(name = "relative_humidity_2m") val relativeHumidity2m: List<Int>? = null,
     @Json(name = "precipitation_probability") val precipitationProbability: List<Int>? = null,
     @Json(name = "weather_code") val weatherCode: List<Int>,
-    @Json(name = "wind_speed_10m") val windSpeed10m: List<Double>? = null
+    @Json(name = "wind_speed_10m") val windSpeed10m: List<Double>? = null,
+    @Json(name = "is_day") val isDay: List<Int>? = null
 )
 
 @JsonClass(generateAdapter = true)

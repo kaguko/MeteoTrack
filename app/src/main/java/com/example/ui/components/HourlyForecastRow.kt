@@ -56,7 +56,10 @@ fun HourlyForecastRow(
             val temp = hourly.temperature2m.getOrNull(index) ?: 0.0
             HourItem(
                 label = if (index == start) "Bây giờ" else hourLabel(hourly.time[index]) ?: "",
-                emoji = WeatherCodeMapper.getInfo(hourly.weatherCode.getOrNull(index) ?: 0).iconEmoji,
+                emoji = WeatherCodeMapper.getInfo(
+                    hourly.weatherCode.getOrNull(index) ?: 0,
+                    isDay = hourly.isDay?.getOrNull(index) != 0
+                ).iconEmoji,
                 tempText = Units.tempShort(temp, tempUnit),
                 spokenTemp = "${Math.round(Units.temp(temp, tempUnit))} độ",
                 rainProb = hourly.precipitationProbability?.getOrNull(index) ?: 0,
